@@ -9,6 +9,9 @@
 #include <bluetooth/hci_lib.h>
 #include <bluetooth/l2cap.h>
 #include <errno.h>
+#include <uv.h>
+
+#include "att_pdus.h"
 
 void listen_for_le_events_start(int sock, struct hci_filter *old_filter) {
   struct hci_filter filter;
@@ -46,7 +49,7 @@ void get_advertized_device(int sock, bdaddr_t *dst_addr, uint8_t *type) {
 
   unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
   int j;
-  for(j = 0; j < 1; j++) {
+  for(j = 0; j < 10; j++) {
     size_t len;
     evt_le_meta_event *meta_evt;
     if ((len = read(sock, buf, sizeof(buf))) < 0) {
@@ -65,10 +68,86 @@ void get_advertized_device(int sock, bdaddr_t *dst_addr, uint8_t *type) {
 
     le_advertising_info *info = (le_advertising_info*)(meta_evt->data + 1);
     *type = info->bdaddr_type;
+    printf("Addr type %d\n", *type);
     bacpy(dst_addr, &info->bdaddr);
   }
 
   listen_for_le_events_cleanup(sock, &old_filter);
+}
+
+int find_info(int s, uint16_t start, uint16_t end) {
+  int size;
+  struct find_info_req find_req_pdu;
+  find_req_pdu.opcode = 0x4;
+  find_req_pdu.start_handle = htole16(start);
+  find_req_pdu.end_handle = htole16(end);
+  size = write(s, (char*)(&find_req_pdu), sizeof(find_req_pdu));
+  if (size < 0) {
+    perror("write");
+  }
+
+  struct find_info_resp find_resp_pdu;
+  size = read(s, (char*)(&find_resp_pdu), sizeof(find_resp_pdu));
+  if (size < 0) {
+    perror("read");
+  }
+
+  if (find_resp_pdu.opcode != 0x5) {
+    return 0;
+  }
+
+  uint16_t handle = 0;
+  if (find_resp_pdu.format == 1) {
+    int num_handles = (size - 2) / 4;
+    int i;
+    for (i = 0; i < num_handles; ++i) {
+      handle = le16toh(find_resp_pdu.handles16[i].handle);
+      uint16_t uuid = le16toh(find_resp_pdu.handles16[i].uuid);
+      printf("Handle 0x%x UUID %x\n", handle, uuid);
+    }
+  } else {
+    printf("128 bit UUIDs\n");
+  }
+  return (int)(handle + 1);
+}
+
+void read_services(int fd) {
+  struct read_by_16bit_type_pdu req;
+  int size;
+  int i;
+
+  char req_buf[7];
+  req_buf[0] = 0x08;
+  req_buf[1] = 0x01;
+  req_buf[2] = 0;
+  req_buf[3] = 0xff;
+  req_buf[4] = 0xff;
+  req_buf[5] = 0x0;
+  req_buf[6] = 0x28;
+  req.opcode = 0x08;
+  req.start_handle = htole16(1);
+  req.start_handle = htole16(0xffff);
+  req.att_type = htole16(0x2800);
+
+  for (i = 0; i < sizeof(req); i ++) {
+    printf("0x%1x ", req_buf[i]);
+  }
+
+
+  size = write(fd, req_buf, sizeof(req));
+  if (size < 0) {
+    perror("write");
+  }
+
+  char buf[48];
+  read(fd, buf, 48);
+  for (i = 0; i < 48; i ++) {
+    if (buf[i] == 0x0a || 1) {
+      printf("0x%1x ", (unsigned)buf[i]);
+    }
+  }
+  printf("\n");
+
 }
 
 int main(int argc, char **argv)
@@ -128,41 +207,14 @@ int main(int argc, char **argv)
       perror("stop scanning");
       exit(1);
     }
-
-    /* Create connection */
-
-    /*uint16_t minConnInterval = htobs(0x0006);
-    uint16_t maxConnInterval = htobs(0x0006);
-    uint16_t slaveLatency = htobs(0x0000);
-    uint16_t supervisionTimeout = htobs(0x0C80);
-    uint16_t minCELength = htobs(0x0001);
-    uint16_t maxCELength = htobs(0x0001);
-    uint16_t handle;
-
-    err = hci_le_create_conn(
-            sock,
-            scanInterval,
-            scanWindow,
-            0x0, // Don't use whitelist
-            dst_addr_type,
-            dst_addr,
-            0x0, // Public self address
-            minConnInterval, // Minimum connection interval
-            maxConnInterval, // Maximum connection interval
-            slaveLatency,
-            supervisionTimeout, minCELength, maxCELength, &handle, 2500);
-    if (err) {
-      perror("connect");
-      exit(1);
-    }*/
     close(sock);
 
     /* Connect to ATT over L2CAP */
 
-    int s = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
+    int s = socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
     if (s < 0) {
       perror("socket");
-      goto finish;
+      exit(1);
     }
 
     struct sockaddr_l2 bind_addr = { 0 };
@@ -175,7 +227,8 @@ int main(int argc, char **argv)
     err = bind(s, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
     if (err) {
       perror("L2CAP bind");
-      goto finish;
+      close(s);
+      exit(1);
     }
 
     {
@@ -183,56 +236,83 @@ int main(int argc, char **argv)
       socklen_t len = sizeof(flags);
       if (getsockopt(s, SOL_SOCKET, L2CAP_LM, &flags, &len)) {
         perror("L2CAP setup");
-        goto finish;
+        close(s);
+        exit(1);
       }
+      printf("%d\n", flags);
       flags |= L2CAP_LM_MASTER;
+      printf("%d\n", flags);
       if (setsockopt(s, SOL_L2CAP, L2CAP_LM, &flags, len)) {
         perror("L2CAP setup");
-        goto finish;
+        close(s);
+        exit(1);
       }
 
-      struct bt_security sec = { 0 };
+      /*struct bt_security sec = { 0 };
       sec.level = BT_SECURITY_LOW;
       if (setsockopt(s, SOL_BLUETOOTH, BT_SECURITY, &sec, sizeof(sec))) {
         perror("set security");
-        goto finish;
-      }
+        close(s);
+        exit(1);
+      }*/
 
       int opt = L2CAP_LM_AUTH;
       if (setsockopt(s, SOL_L2CAP, L2CAP_LM, &opt, sizeof(opt))) {
         perror("set l2cap security");
-        goto finish;
+        close(s);
+        exit(1);
       }
     }
 
     struct sockaddr_l2 conn_addr = { 0 };
     conn_addr.l2_family = AF_BLUETOOTH;
     conn_addr.l2_cid = htobs(4); // ATT CID
+    int i;
+    for (i = 0; i < 6; i++) {
+      printf("%2.2X:", dst_addr.b[i]);
+    }
+    printf("\n");
     bacpy(&conn_addr.l2_bdaddr, &dst_addr);
     conn_addr.l2_bdaddr_type = BDADDR_LE_RANDOM;
-    printf("Type %d\n", dst_addr_type & BDADDR_LE_RANDOM);
 
     err = connect(s, (struct sockaddr*)&conn_addr, sizeof(conn_addr));
     if (err) {
       if (!(errno & (EINPROGRESS | EAGAIN))) {
         perror("L2CAP connect");
-        goto finish;
+        close(s);
+        exit(1);
       }
     }
 
-    write(s, "hello", 5);
-    perror("write");
+    uint16_t start = 1;
+    do {
+      start = find_info(s, start, 0xffff);
+    } while (start > 1);
+
+    read_services(s);
+
     close(s);
 
-finish:
-    /* Disconnect
-    err = hci_disconnect(sock, handle, HCI_CONNECTION_TERMINATED, 10000);
-    if (err) {
-      perror("disconnect");
-      close( sock );
-      exit(1);
-    }*/
-
-//    close( sock );
     return 0;
 }
+
+static uv_loop_t *loop;
+static char console_buf[1024];
+
+void test_alloc(uv_handle_t *h, size_t ssize, uv_buf_t* buf) {
+  buf->base = console_buf;
+  buf->len = 1024;
+}
+
+void on_read_line(uv_stream_t* stdin_pipe, ssize_t nread, const uv_buf_t *buf) {
+  if (nread == UV_EOF) {
+    uv_close((uv_handle_t*)stdin_pipe, NULL);
+  } else {
+    printf("> ");
+    fflush(stdout);
+  }
+  if (buf->base) {
+    buf->base[0] = 0;
+  }
+}
+

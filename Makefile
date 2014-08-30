@@ -1,5 +1,8 @@
-CFLAGS += `pkg-config --cflags bluez`
-LDFLAGS += `pkg-config --libs bluez`
+CC := gcc
+CFLAGS += `pkg-config --cflags bluez libuv`
+LDFLAGS += `pkg-config --libs bluez libuv`
 
-test: test.c
-	gcc $(CFLAGS) $(LDFLAGS) -o $@ $<
+all: test
+
+clean:
+	rm -f test
