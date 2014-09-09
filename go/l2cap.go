@@ -47,11 +47,13 @@ const (
   L2CAP_LM_FIPS int = 0x0040
 )
 
+type UUID [6]uint8
+
 type L2Sockaddr struct {
   buf [13]uint8
 }
 
-func NewL2Sockaddr(channel uint16, addr [6]uint8, addr_type uint8) *L2Sockaddr {
+func NewL2Sockaddr(channel uint16, addr UUID, addr_type uint8) *L2Sockaddr {
   res := &L2Sockaddr{}
   *((*uint16)(unsafe.Pointer(&res.buf[0]))) = uint16(AF_BLUETOOTH)
   for i := 0; i < len(addr); i++ {
@@ -93,7 +95,7 @@ func NewBLE(remoteAddr *L2Sockaddr) (*os.File, error){
     return nil, err
   }
 
-  addr := NewL2Sockaddr(4, [6]uint8{0, 0, 0, 0, 0, 0}, BDADDR_LE_PUBLIC)
+  addr := NewL2Sockaddr(4, UUID{0, 0, 0, 0, 0, 0}, BDADDR_LE_PUBLIC)
   err = bind(fd, addr)
   if err != nil {
     return nil, err
@@ -123,8 +125,8 @@ func NewBLE(remoteAddr *L2Sockaddr) (*os.File, error){
 
 }
 
-func Str2Ba(addrStr string) ([6]uint8, error) {
-  var remoteAddr [6]uint8
+func Str2Ba(addrStr string) (UUID, error) {
+  var remoteAddr UUID
   addrComponents := strings.Split(addrStr, ":")
   if (len(addrComponents) != 6) {
     return remoteAddr, errors.New("Bad address format")
@@ -140,21 +142,6 @@ func Str2Ba(addrStr string) ([6]uint8, error) {
   return remoteAddr, nil
 }
 
-func Proxy(self *os.File, remote *os.File) {
-  buf := make([]byte, 48)
-  for {
-    n, err := self.Read(buf)
-    if err != nil {
-      fmt.Printf("%s\n", err)
-    }
-    fmt.Printf("%v\n", buf[0:n])
-    _, err = remote.Write(buf[0:n])
-    if err != nil {
-      fmt.Printf("%s\n", err)
-    }
-  }
-}
-
 func main() {
   remoteAddr1, err := Str2Ba(os.Args[1])
   if err != nil {
@@ -167,13 +154,13 @@ func main() {
     os.Exit(1)
   }
 
-  conn1, err := NewBLE(NewL2Sockaddr(4, remoteAddr1, BDADDR_LE_RANDOM))
+  _, err = NewBLE(NewL2Sockaddr(4, remoteAddr1, BDADDR_LE_RANDOM))
   if err != nil {
     fmt.Printf("%s\n", err)
     os.Exit(1)
   }
 
-  conn2, err := NewBLE(NewL2Sockaddr(4, remoteAddr2, BDADDR_LE_RANDOM))
+  _, err = NewBLE(NewL2Sockaddr(4, remoteAddr2, BDADDR_LE_RANDOM))
   if err != nil {
     fmt.Printf("%s\n", err)
     os.Exit(1)
@@ -189,8 +176,8 @@ func main() {
   n,_ = conn2.Read(buf)
   fmt.Printf("%v\n", buf[0:n])*/
 
-  go Proxy(conn1, conn2)
-  Proxy(conn2, conn1)
+  _ = new(Proxy)
+  _ = new(Proxy)
 
 }
 
