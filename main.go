@@ -18,7 +18,7 @@ type subscriptionRequest struct {
 type Device struct {
   addr          string
   fd            *os.File
-  handles       []*HandleInfo
+  handles       map[uint16]*HandleInfo
   handleOffset  uint16
   subscriptions map[uint8](chan []byte)
   subscribeChan chan subscriptionRequest
@@ -71,7 +71,6 @@ func (this *Device) ProcessIncoming() error {
 }
 
 type TransactionReadWriter struct {
-  opcode uint8
   device *Device
   channel chan []byte
 }
@@ -84,7 +83,8 @@ func (this *TransactionReadWriter) Read(buf []byte) (int, error) {
 
 func (this *TransactionReadWriter) Write(buf []byte) (int, error) {
   this.channel = make(chan []byte)
-  this.device.subscribeChan <-subscriptionRequest{this.opcode, this.channel}
+  opcode := buf[0] + 1
+  this.device.subscribeChan <-subscriptionRequest{opcode, this.channel}
   return this.device.fd.Write(buf)
 }
 
@@ -105,20 +105,34 @@ func (this *Manager) connectTo(addr string) error {
     return err
   }
 
-  device := &Device{addr, f, nil, this.globalHandleOffset,
+  device := &Device{addr, f, make(map[uint16]*HandleInfo), this.globalHandleOffset,
               make(map[uint8](chan []byte)), make(chan subscriptionRequest)}
   this.devices = append(this.devices, device)
 
   go device.ProcessIncoming()
 
   handles, err := DiscoverHandles(
-    &TransactionReadWriter{ATT_OPCODE_FIND_INFO_RESPONSE, device, nil})
+    &TransactionReadWriter{device, nil})
   if err != nil {
     f.Close()
     return err
   }
 
-  device.handles = handles
+  for _, handle := range handles {
+    device.handles[handle.handle] = handle
+  }
+
+  groupVals, err := DiscoverServices(
+    &TransactionReadWriter{device, nil})
+  if err != nil {
+    f.Close()
+    return err
+  }
+
+  for _,v := range groupVals {
+    device.handles[v.handle].cachedValue = v.value
+  }
+
   this.globalHandleOffset += uint16(len(handles) + 1)
 
 
@@ -228,7 +242,6 @@ func main() {
         fmt.Printf("Usage: handles [device_idx]\n")
         continue
       }
-      fmt.Printf("Disconnecting from %s... ", parts[1])
       idx, err := strconv.ParseInt(parts[1], 10, 0)
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
@@ -239,7 +252,8 @@ func main() {
         fmt.Printf("Unknown device %s\n", parts[1])
       }
       for _, handle := range device.handles {
-        fmt.Printf("0x%02X:\t%v\n", handle.handle, handle.uuid)
+        fmt.Printf("0x%02X:\t%v\t%v\n",
+          handle.handle, handle.uuid, handle.cachedValue)
       }
     case "serve":
       if len(parts) < 3 {

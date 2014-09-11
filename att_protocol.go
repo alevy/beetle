@@ -2,6 +2,7 @@ package main
 
 import (
   "errors"
+  "fmt"
   "io"
 )
 
@@ -49,6 +50,7 @@ type Error struct {
 type HandleInfo struct {
   format uint8
   handle uint16
+  cachedValue []byte
   uuid UUID
 }
 
@@ -76,59 +78,11 @@ func (this *Error) ErrorCode() uint8 {
   return this.msg[4]
 }
 
-type MTURequest struct {
-  msg []byte
-}
-
-func NewMTURequest(msg []byte) (*MTURequest, error) {
-  if len(msg) == 3 {
-    return &MTURequest{msg}, nil
-  } else {
-    return nil, errors.New("Message must be 5 bytes")
-  }
-}
-
-func (this *MTURequest) Msg() []byte {
-  return this.msg
-}
-
-type MTUResponse struct {
-  msg []byte
-}
-
-func NewMTUResponse(msg []byte) (*MTUResponse, error) {
-  if len(msg) == 3 {
-    return &MTUResponse{msg}, nil
-  } else {
-    return nil, errors.New("Message must be 5 bytes")
-  }
-}
-
-func (this *MTUResponse) Msg() []byte {
-  return this.msg
-}
-
-type FindInfoRequest struct {
-  msg []byte
-}
-
-func NewFindInfoRequest(msg []byte) (*FindInfoRequest, error) {
-  if len(msg) == 5 {
-    return &FindInfoRequest{msg}, nil
-  } else {
-    return nil, errors.New("Message must be 5 bytes")
-  }
-}
-
-func (this *FindInfoRequest) Msg() []byte {
-  return this.msg
-}
-
 type FindInfoResponse struct {
   msg []byte
 }
 
-func NewFindInfoResponse(msg []byte) (*FindInfoResponse, error) {
+func ParseFindInfoResponse(msg []byte) (*FindInfoResponse, error) {
   if len(msg) >= 6 && (len(msg) - 2) % 4 == 0 {
     return &FindInfoResponse{msg}, nil
   } else {
@@ -177,22 +131,6 @@ func (this *FindInfoResponse) InfoData() []*HandleInfo {
   return ihs
 }
 
-type FindInfoByValueRequest struct {
-  msg []byte
-}
-
-func NewFindInfoByValueRequest(msg []byte) (*FindInfoByValueRequest, error) {
-  if len(msg) >= 7 {
-    return &FindInfoByValueRequest{msg}, nil
-  } else {
-    return nil, errors.New("Message is not the right length")
-  }
-}
-
-func (this *FindInfoByValueRequest) Msg() []byte {
-  return this.msg
-}
-
 type FindInfoByValueResponse struct {
   msg []byte
 }
@@ -209,53 +147,49 @@ func (this *FindInfoByValueResponse) Msg() []byte {
   return this.msg
 }
 
-func ParseMessage(msg []byte) (pdu AttPDU, err error) {
-  if len(msg) == 0 {
-    err = errors.New("Message cannot be empty")
-    return
-  }
+type ReadByGroupTypeResponse struct {
+  msg []byte
+}
 
-  switch msg[0] {
-  case ATT_OPCODE_ERROR:
-    pdu, err = NewError(msg)
-  case ATT_OPCODE_MTU_REQUEST:
-    pdu, err = NewMTURequest(msg)
-  case ATT_OPCODE_MTU_RESPONSE:
-    pdu, err = NewMTUResponse(msg)
-  case ATT_OPCODE_FIND_INFO_REQUEST:
-    pdu, err = NewFindInfoRequest(msg)
-  case ATT_OPCODE_FIND_INFO_RESPONSE:
-    pdu, err = NewFindInfoResponse(msg)
-  case ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST:
-    pdu, err = NewFindInfoByValueRequest(msg)
-  case ATT_OPCODE_FIND_BY_TYPE_VALUE_RESPONSE:
-    pdu, err = NewFindInfoByValueResponse(msg)
-  case ATT_OPCODE_READ_BY_TYPE_REQUEST:
-  case ATT_OPCODE_READ_BY_TYPE_RESPONSE:
-  case ATT_OPCODE_READ_REQUEST:
-  case ATT_OPCODE_READ_RESPONSE:
-  case ATT_OPCODE_READ_BLOB_REQUEST:
-  case ATT_OPCODE_READ_BLOB_RESPONSE:
-  case ATT_OPCODE_READ_MULTIPLE_REQUEST:
-  case ATT_OPCODE_READ_MULTIPLE_RESPONSE:
-  case ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST:
-  case ATT_OPCODE_READ_BY_GROUP_TYPE_RESPONSE:
-  case ATT_OPCODE_WRITE_REQUEST:
-  case ATT_OPCODE_WRITE_RESPONSE:
-  case ATT_OPCODE_WRITE_COMMAND:
-  case ATT_OPCODE_PREPARE_WRITE_REQUEST:
-  case ATT_OPCODE_PREPARE_WRITE_RESPONSE:
-  case ATT_OPCODE_EXECUTE_WRITE_REQUEST:
-  case ATT_OPCODE_EXECUTE_WRITE_RESPONSE:
-  case ATT_OPCODE_HANDLE_VALUE_NOTIFICATION:
-  case ATT_OPCODE_HANDLE_VALUE_INDICATION:
-  case ATT_OPCODE_HANDLE_VALUE_CONFIRMATION:
-  case ATT_OPCODE_SIGNED_WRITE_COMMAND:
-  default:
-    err = errors.New("Bad message opcode")
+func ParseReadByGroupTypeResponse(msg []byte) (*ReadByGroupTypeResponse, error) {
+  if len(msg) >= 4 {
+    return &ReadByGroupTypeResponse{msg}, nil
+  } else {
+    return nil, errors.New("Message is not the right length")
   }
+}
 
-  return
+type GroupValue struct {
+  handle uint16
+  endGroup uint16
+  value []byte
+}
+
+func (this *ReadByGroupTypeResponse) Length() uint8 {
+  return this.msg[1]
+}
+
+func (this *ReadByGroupTypeResponse) DataList() []*GroupValue {
+  step := int(this.Length())
+  length := step - 4
+
+  vals := make([]*GroupValue, 0)
+  for i := 2; i < len(this.msg); i += step {
+    buf := this.msg[i:i + step]
+
+    handle := uint16(buf[0]) + uint16(buf[1]) << 16
+    endGroup := uint16(buf[2]) + uint16(buf[3]) << 16
+    value := make([]byte, length)
+    copy(value, buf[4:])
+
+    groupVal := &GroupValue{}
+    groupVal.handle = handle
+    groupVal.endGroup = endGroup
+    groupVal.value = value
+
+    vals = append(vals, groupVal)
+  }
+  return vals
 }
 
 func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
@@ -286,7 +220,7 @@ func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
     resp := respBuf[0:n]
 
     if resp[0] == ATT_OPCODE_FIND_INFO_RESPONSE {
-      fi, err := NewFindInfoResponse(resp)
+      fi, err := ParseFindInfoResponse(resp)
       if err != nil {
         return nil, err
       }
@@ -305,5 +239,56 @@ func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
   }
 
   return handles, nil
+}
+
+func DiscoverServices(f io.ReadWriter) ([]*GroupValue, error) {
+  buf := make([]byte, 7)
+  buf[0] = ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST
+
+  var startHandle uint16 = 1
+  var endHandle uint16   = 0xffff
+
+  buf[3] = byte(endHandle & 0xff)
+  buf[4] = byte(endHandle >> 8)
+  copy(buf[5:], []byte{0, 0x28}) // Primary Service UUID
+
+  vals := make([]*GroupValue, 0)
+  for {
+    respBuf := make([]byte, 64)
+    // populate packet buffer
+    buf[1] = byte(startHandle & 0xff)
+    buf[2] = byte(startHandle >> 8)
+
+    _, err := f.Write(buf)
+    if err != nil {
+      return nil, err
+    }
+
+    n, err := f.Read(respBuf)
+    if err != nil {
+      return nil, err
+    }
+    resp := respBuf[0:n]
+
+    if resp[0] == ATT_OPCODE_READ_BY_GROUP_TYPE_RESPONSE {
+      fi, err := ParseReadByGroupTypeResponse(resp)
+      if err != nil {
+        return nil, err
+      }
+      vals = append(vals, fi.DataList()...)
+
+      startHandle = vals[len(vals) - 1].endGroup + 1
+      continue
+    }
+
+    if resp[0] == ATT_OPCODE_ERROR  &&
+       resp[1] == ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST && resp[4] == 0x0A {
+        break
+    } else {
+      str := fmt.Sprintf("%v", resp)
+      return nil, errors.New("Unexpected packet: " + str)
+    }
+  }
+  return vals, nil
 }
 
