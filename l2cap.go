@@ -110,11 +110,6 @@ func NewBLE(remoteAddr *L2Sockaddr) (*os.File, error){
     return nil, err
   }
 
-//  err = syscall.SetsockoptInt(fd, SOL_L2CAP, L2CAP_LM, L2CAP_LM_AUTH)
-//  if err != nil {
-//    return nil, err
-//  }
-
   err = connect(fd, remoteAddr)
   if err != nil {
     return nil, err
