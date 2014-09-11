@@ -2,6 +2,7 @@ package main
 
 import (
   "errors"
+  "io"
 )
 
 const (
@@ -43,6 +44,12 @@ type AttPDU interface {
 
 type Error struct {
   msg    []byte
+}
+
+type HandleInfo struct {
+  format uint8
+  handle uint16
+  uuid UUID
 }
 
 func NewError(msg []byte) (*Error, error) {
@@ -137,23 +144,19 @@ func (this *FindInfoResponse) Format() uint8 {
   return this.msg[1]
 }
 
-func (this *FindInfoResponse) InfoData() []HandleInfo {
+func (this *FindInfoResponse) InfoData() []*HandleInfo {
   format := this.Format()
-  var num int
+  var step int
   if format == 1 {
-    num = (len(this.msg) - 2) / 4
+    step = 4
   } else {
-    num = (len(this.msg) - 2) / 18
+    step = 18
   }
 
-  ihs := make([]HandleInfo, num)
-  for i := 0; i < num; i++ {
-    var buf []byte
-    if format == 1 {
-      buf = this.msg[i * 4 + 2:4]
-    } else {
-      buf = this.msg[i * 18 + 2:18]
-    }
+  ihs := make([]*HandleInfo, 0)
+  for i := 2; i < len(this.msg); i += step {
+    buf := this.msg[i:i + step]
+
     handleNum := uint16(buf[0]) + uint16(buf[1]) << 16
     var uuid UUID
     uuid[0] = buf[2]
@@ -164,12 +167,12 @@ func (this *FindInfoResponse) InfoData() []HandleInfo {
       }
     }
 
-    var handle HandleInfo
+    handle := &HandleInfo{}
     handle.format = format
     handle.handle = handleNum
     handle.uuid = uuid
 
-    ihs[i] = handle
+    ihs = append(ihs, handle)
   }
   return ihs
 }
@@ -254,3 +257,53 @@ func ParseMessage(msg []byte) (pdu AttPDU, err error) {
 
   return
 }
+
+func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
+  buf := make([]byte, 5)
+  buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
+
+  var startHandle uint16 = 1
+  var endHandle uint16   = 0xffff
+
+  respBuf := make([]byte, 64)
+  handles := make([]*HandleInfo, 0)
+  for {
+    // populate packet buffer
+    buf[1] = byte(startHandle & 0xff)
+    buf[2] = byte(startHandle >> 8)
+    buf[3] = byte(endHandle & 0xff)
+    buf[4] = byte(endHandle >> 8)
+
+    _, err := f.Write(buf)
+    if err != nil {
+      return nil, err
+    }
+
+    n, err := f.Read(respBuf)
+    if err != nil {
+      return nil, err
+    }
+    resp := respBuf[0:n]
+
+    if resp[0] == ATT_OPCODE_FIND_INFO_RESPONSE {
+      fi, err := NewFindInfoResponse(resp)
+      if err != nil {
+        return nil, err
+      }
+      handles = append(handles, fi.InfoData()...)
+
+      startHandle = handles[len(handles) - 1].handle + 1
+      continue
+    }
+
+    if resp[0] == ATT_OPCODE_ERROR  &&
+       resp[1] == ATT_OPCODE_FIND_INFO_REQUEST && resp[4] == 0x0A {
+        break
+    } else {
+      return nil, errors.New("Unexpected packet: " + string(resp))
+    }
+  }
+
+  return handles, nil
+}
+

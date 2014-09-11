@@ -3,7 +3,6 @@ package main
 import (
   "errors"
   "encoding/binary"
-  "fmt"
   "strconv"
   "strings"
   "syscall"
@@ -140,44 +139,5 @@ func Str2Ba(addrStr string) (UUID, error) {
     }
   }
   return remoteAddr, nil
-}
-
-func main() {
-  remoteAddr1, err := Str2Ba(os.Args[1])
-  if err != nil {
-    fmt.Printf("%s\n", err)
-    os.Exit(1)
-  }
-  remoteAddr2, err := Str2Ba(os.Args[2])
-  if err != nil {
-    fmt.Printf("%s\n", err)
-    os.Exit(1)
-  }
-
-  _, err = NewBLE(NewL2Sockaddr(4, remoteAddr1, BDADDR_LE_RANDOM))
-  if err != nil {
-    fmt.Printf("%s\n", err)
-    os.Exit(1)
-  }
-
-  _, err = NewBLE(NewL2Sockaddr(4, remoteAddr2, BDADDR_LE_RANDOM))
-  if err != nil {
-    fmt.Printf("%s\n", err)
-    os.Exit(1)
-  }
-
-  /*conn1.Write(FindInfoRequest(1, 0xffff))
-  conn2.Write(FindInfoRequest(1, 0xffff))
-
-  buf := make([]byte, 48)
-  n,_ := conn1.Read(buf)
-  fmt.Printf("%v\n", buf[0:n])
-
-  n,_ = conn2.Read(buf)
-  fmt.Printf("%v\n", buf[0:n])*/
-
-  _ = new(Proxy)
-  _ = new(Proxy)
-
 }
 
