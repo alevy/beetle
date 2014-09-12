@@ -8,89 +8,12 @@ import (
   "os"
   "strconv"
   "strings"
+  "sync/atomic"
 )
-
-type subscriptionRequest struct {
-  opcode  uint8
-  channel chan []byte
-}
-
-type Device struct {
-  addr          string
-  fd            *os.File
-  handles       map[uint16]*HandleInfo
-  handleOffset  uint16
-  subscriptions map[uint8](chan []byte)
-  subscribeChan chan subscriptionRequest
-}
-
-func (this *Device) ProcessIncoming() error {
-  buf := make([]byte, 48)
-
-  for {
-    sReq, ok := <-this.subscribeChan
-    if !ok {
-      return nil
-    }
-    this.subscriptions[sReq.opcode] = sReq.channel
-
-    n, err := this.fd.Read(buf)
-    if err != nil {
-      return err
-    }
-
-    req := buf[0:n]
-    var opcode uint8
-    if req[0] == ATT_OPCODE_ERROR {
-      // Use requested opcode for filter
-      opcode = req[1] + 1 // request always one less than response
-    } else {
-      opcode = req[0]
-    }
-
-    ch := this.subscriptions[opcode]
-    if ch != nil {
-      ch <-req
-      delete(this.subscriptions, opcode)
-    } else {
-      for {
-        sReq, ok := <-this.subscribeChan
-        if !ok {
-          return nil
-        }
-
-        if sReq.opcode == opcode {
-          sReq.channel <-req
-          break
-        } else {
-          this.subscriptions[sReq.opcode] = sReq.channel
-        }
-      }
-    }
-  }
-}
-
-type TransactionReadWriter struct {
-  device *Device
-  channel chan []byte
-}
-
-func (this *TransactionReadWriter) Read(buf []byte) (int, error) {
-  recv := <-this.channel
-  copy(buf, recv)
-  return len(recv), nil
-}
-
-func (this *TransactionReadWriter) Write(buf []byte) (int, error) {
-  this.channel = make(chan []byte)
-  opcode := buf[0] + 1
-  this.device.subscribeChan <-subscriptionRequest{opcode, this.channel}
-  return this.device.fd.Write(buf)
-}
 
 type Manager struct {
   devices []*Device
-  globalHandleOffset uint16
+  globalHandleOffset int32
   associations map[int][]int
 }
 
@@ -105,27 +28,36 @@ func (this *Manager) connectTo(addr string) error {
     return err
   }
 
-  device := &Device{addr, f, make(map[uint16]*HandleInfo), this.globalHandleOffset,
-              make(map[uint8](chan []byte)), make(chan subscriptionRequest)}
+  device := NewDevice(addr, f)
   this.devices = append(this.devices, device)
 
-  go device.ProcessIncoming()
+  return nil
+}
 
-  handles, err := DiscoverHandles(
-    &TransactionReadWriter{device, nil})
+func (this *Manager) start(idx int) error {
+  if idx >= len(this.devices) || idx < 0 {
+    return errors.New("No such device")
+  }
+
+  device := this.devices[idx]
+  device.Start()
+
+  handles, err := DiscoverHandles(device)
   if err != nil {
-    f.Close()
+    device.fd.Close()
     return err
   }
+
+  newVal := atomic.AddInt32(&this.globalHandleOffset, int32(len(handles) + 1))
+  device.handleOffset = newVal
 
   for _, handle := range handles {
     device.handles[handle.handle] = handle
   }
 
-  groupVals, err := DiscoverServices(
-    &TransactionReadWriter{device, nil})
+  groupVals, err := DiscoverServices(device)
   if err != nil {
-    f.Close()
+    device.fd.Close()
     return err
   }
 
@@ -133,14 +65,11 @@ func (this *Manager) connectTo(addr string) error {
     device.handles[v.handle].cachedValue = v.value
   }
 
-  this.globalHandleOffset += uint16(len(handles) + 1)
-
-
   return nil
 }
 
 func (this *Manager) disconnectFrom(idx int) error {
-  if idx >= len(this.devices) {
+  if idx >= len(this.devices) || idx < 0 {
     return errors.New("No such device")
   }
 
@@ -230,6 +159,23 @@ func main() {
       } else {
         fmt.Printf("done\n")
       }
+    case "start":
+      if len(parts) < 2 {
+        fmt.Printf("Usage: start [device_address]\n")
+        continue
+      }
+      fmt.Printf("Starting %s... ", parts[1])
+      idx, err := strconv.ParseInt(parts[1], 10, 0)
+      if err != nil {
+        fmt.Printf("ERROR: %s\n", err)
+        continue
+      }
+      err = manager.start(int(idx))
+      if err != nil {
+        fmt.Printf("ERROR: %s\n", err)
+      } else {
+        fmt.Printf("done\n")
+      }
     case "devices":
       if len(manager.devices) == 0 {
         fmt.Printf("No connected devices\n")
@@ -247,10 +193,11 @@ func main() {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      device := manager.devices[idx]
-      if device == nil {
+      if int(idx) >= len(manager.devices) || int(idx) < 0 {
         fmt.Printf("Unknown device %s\n", parts[1])
+        continue
       }
+      device := manager.devices[idx]
       for _, handle := range device.handles {
         fmt.Printf("0x%02X:\t%v\t%v\n",
           handle.handle, handle.uuid, handle.cachedValue)

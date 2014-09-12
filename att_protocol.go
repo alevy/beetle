@@ -3,7 +3,6 @@ package main
 import (
   "errors"
   "fmt"
-  "io"
 )
 
 const (
@@ -192,14 +191,13 @@ func (this *ReadByGroupTypeResponse) DataList() []*GroupValue {
   return vals
 }
 
-func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
+func DiscoverHandles(f *Device) ([]*HandleInfo, error) {
   buf := make([]byte, 5)
   buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
 
   var startHandle uint16 = 1
   var endHandle uint16   = 0xffff
 
-  respBuf := make([]byte, 64)
   handles := make([]*HandleInfo, 0)
   for {
     // populate packet buffer
@@ -208,16 +206,10 @@ func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
     buf[3] = byte(endHandle & 0xff)
     buf[4] = byte(endHandle >> 8)
 
-    _, err := f.Write(buf)
+    resp, err := f.Transaction(buf)
     if err != nil {
       return nil, err
     }
-
-    n, err := f.Read(respBuf)
-    if err != nil {
-      return nil, err
-    }
-    resp := respBuf[0:n]
 
     if resp[0] == ATT_OPCODE_FIND_INFO_RESPONSE {
       fi, err := ParseFindInfoResponse(resp)
@@ -241,7 +233,7 @@ func DiscoverHandles(f io.ReadWriter) ([]*HandleInfo, error) {
   return handles, nil
 }
 
-func DiscoverServices(f io.ReadWriter) ([]*GroupValue, error) {
+func DiscoverServices(f *Device) ([]*GroupValue, error) {
   buf := make([]byte, 7)
   buf[0] = ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST
 
@@ -254,21 +246,14 @@ func DiscoverServices(f io.ReadWriter) ([]*GroupValue, error) {
 
   vals := make([]*GroupValue, 0)
   for {
-    respBuf := make([]byte, 64)
     // populate packet buffer
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
 
-    _, err := f.Write(buf)
+    resp, err := f.Transaction(buf)
     if err != nil {
       return nil, err
     }
-
-    n, err := f.Read(respBuf)
-    if err != nil {
-      return nil, err
-    }
-    resp := respBuf[0:n]
 
     if resp[0] == ATT_OPCODE_READ_BY_GROUP_TYPE_RESPONSE {
       fi, err := ParseReadByGroupTypeResponse(resp)
