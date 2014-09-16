@@ -18,18 +18,18 @@ type Device struct {
   addr          string
   fd            *os.File
   handles       map[uint16]*HandleInfo
-  handleOffset  int32
+  handleOffset  int
 
   clientRespChan chan Response
-  serverRespChan chan Response
-  reqChan        chan []byte
+  serverReqChan  chan Response
+  writeChan      chan []byte
 
   clientInChan    chan WriteReq
 }
 
 func NewDevice(addr string, fd *os.File) *Device {
   return &Device{addr, fd, make(map[uint16]*HandleInfo), -1,
-    make(chan Response), make(chan Response), make(chan []byte),
+    make(chan Response, 1), make(chan Response, 1), make(chan []byte),
     make(chan WriteReq)}
 }
 
@@ -41,7 +41,7 @@ func (this *Device) Start() {
       n, err := this.fd.Read(buf)
       if err != nil {
         this.clientRespChan <-Response{nil, err}
-        this.serverRespChan <-Response{nil, err}
+        this.serverReqChan <-Response{nil, err}
       } else {
         resp := buf[0:n]
         if (buf[0] & 1 == 1 && buf[0] != ATT_OPCODE_HANDLE_VALUE_NOTIFICATION &&
@@ -49,7 +49,7 @@ func (this *Device) Start() {
             buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { // Response packet
           this.clientRespChan <-Response{resp, nil}
         } else {
-          this.serverRespChan <-Response{resp, nil}
+          this.serverReqChan <-Response{resp, nil}
         }
       }
     }
@@ -58,24 +58,35 @@ func (this *Device) Start() {
   // Pass write packets to socket
   go func() {
     for {
-      req := <-this.reqChan
+      req := <-this.writeChan
       this.fd.Write(req)
     }
   }()
+}
 
+func (this *Device) StartClient() {
   // Client-side loop
   go func() {
     for {
       req := <-this.clientInChan
-      this.reqChan <-req.packet
+      this.writeChan <-req.packet
       if req.respChan != nil {
         resp := <-this.clientRespChan
         req.respChan <-resp
       }
     }
   }()
+}
 
+func (this *Device) StartServer() {
   //TODO: Server-side loop
+  for {
+    req := <-this.serverReqChan
+    if req.err != nil {
+    } else {
+      this.writeChan <- []byte{1, req.value[0], 0, 0, 0x11}
+    }
+  }
 }
 
 func (this *Device) WriteCmd(packet []byte) {
