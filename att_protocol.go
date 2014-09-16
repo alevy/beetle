@@ -49,6 +49,7 @@ type Error struct {
 type HandleInfo struct {
   format uint8
   handle uint16
+  endGroup uint16
   cachedValue []byte
   uuid UUID
 }
@@ -191,6 +192,48 @@ func (this *ReadByGroupTypeResponse) DataList() []*GroupValue {
   return vals
 }
 
+type ReadByTypeResponse struct {
+  msg []byte
+}
+
+func ParseReadByTypeResponse(msg []byte) (*ReadByTypeResponse, error) {
+  if len(msg) >= 4 {
+    return &ReadByTypeResponse{msg}, nil
+  } else {
+    return nil, errors.New("Message is not the right length")
+  }
+}
+
+type HandleValue struct {
+  handle uint16
+  value []byte
+}
+
+func (this *ReadByTypeResponse) Length() uint8 {
+  return this.msg[1]
+}
+
+func (this *ReadByTypeResponse) DataList() []*HandleValue {
+  step := int(this.Length())
+  length := step - 2
+
+  vals := make([]*HandleValue, 0)
+  for i := 2; i < len(this.msg); i += step {
+    buf := this.msg[i:i + step]
+
+    handle := uint16(buf[0]) + uint16(buf[1]) << 16
+    value := make([]byte, length)
+    copy(value, buf[2:])
+
+    groupVal := &HandleValue{}
+    groupVal.handle = handle
+    groupVal.value = value
+
+    vals = append(vals, groupVal)
+  }
+  return vals
+}
+
 func DiscoverHandles(f *Device) ([]*HandleInfo, error) {
   buf := make([]byte, 5)
   buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
@@ -244,7 +287,7 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
   buf[4] = byte(endHandle >> 8)
   copy(buf[5:], []byte{0, 0x28}) // Primary Service UUID
 
-  vals := make([]*GroupValue, 0)
+  vals := make([]*GroupValue, 0, 4)
   for {
     // populate packet buffer
     buf[1] = byte(startHandle & 0xff)
@@ -277,3 +320,46 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
   return vals, nil
 }
 
+func DiscoverCharacteristics(f *Device) ([]*HandleValue, error) {
+  buf := make([]byte, 7)
+  buf[0] = ATT_OPCODE_READ_BY_TYPE_REQUEST
+
+  var startHandle uint16 = 1
+  var endHandle uint16   = 0xffff
+
+  buf[3] = byte(endHandle & 0xff)
+  buf[4] = byte(endHandle >> 8)
+  copy(buf[5:], []byte{3, 0x28}) // Characteristic Decleration
+
+  vals := make([]*HandleValue, 0, 4)
+  for {
+    // populate packet buffer
+    buf[1] = byte(startHandle & 0xff)
+    buf[2] = byte(startHandle >> 8)
+
+    resp, err := f.Transaction(buf)
+    if err != nil {
+      return nil, err
+    }
+
+    if resp[0] == ATT_OPCODE_READ_BY_TYPE_RESPONSE {
+      fi, err := ParseReadByTypeResponse(resp)
+      if err != nil {
+        return nil, err
+      }
+      vals = append(vals, fi.DataList()...)
+
+      startHandle = vals[len(vals) - 1].handle + 1
+      continue
+    }
+
+    if resp[0] == ATT_OPCODE_ERROR  &&
+       resp[1] == ATT_OPCODE_READ_BY_TYPE_REQUEST && resp[4] == 0x0A {
+        break
+    } else {
+      str := fmt.Sprintf("%v", resp)
+      return nil, errors.New("Unexpected packet: " + str)
+    }
+  }
+  return vals, nil
+}

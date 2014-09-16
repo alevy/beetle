@@ -8,12 +8,11 @@ import (
   "os"
   "strconv"
   "strings"
-  "sync/atomic"
 )
 
 type Manager struct {
   devices []*Device
-  globalHandleOffset int32
+  globalHandleOffset int
   associations map[int][]int
 }
 
@@ -23,7 +22,7 @@ func (this *Manager) connectTo(addr string) error {
     return err
   }
 
-  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM))
+  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM), addr)
   if err != nil {
     return err
   }
@@ -41,6 +40,7 @@ func (this *Manager) start(idx int) error {
 
   device := this.devices[idx]
   device.Start()
+  device.StartClient()
 
   handles, err := DiscoverHandles(device)
   if err != nil {
@@ -48,8 +48,8 @@ func (this *Manager) start(idx int) error {
     return err
   }
 
-  newVal := atomic.AddInt32(&this.globalHandleOffset, int32(len(handles) + 1))
-  device.handleOffset = newVal
+  this.globalHandleOffset += len(handles) + 1
+  device.handleOffset = this.globalHandleOffset
 
   for _, handle := range handles {
     device.handles[handle.handle] = handle
@@ -63,7 +63,20 @@ func (this *Manager) start(idx int) error {
 
   for _,v := range groupVals {
     device.handles[v.handle].cachedValue = v.value
+    device.handles[v.handle].endGroup = v.endGroup
   }
+
+  handleVals, err := DiscoverCharacteristics(device)
+  if err != nil {
+    device.fd.Close()
+    return err
+  }
+
+  for _,v := range handleVals {
+    device.handles[v.handle].cachedValue = v.value
+  }
+
+  go device.StartServer()
 
   return nil
 }
