@@ -88,7 +88,7 @@ func connect(s int, addr *L2Sockaddr) (err error) {
   return
 }
 
-func NewBLE(remoteAddr *L2Sockaddr) (*os.File, error){
+func NewBLE(remoteAddr *L2Sockaddr, name string) (*os.File, error){
   fd, err := syscall.Socket(AF_BLUETOOTH, syscall.SOCK_SEQPACKET, BTPROTO_L2CAP);
   if err != nil {
     return nil, err
@@ -115,7 +115,7 @@ func NewBLE(remoteAddr *L2Sockaddr) (*os.File, error){
     return nil, err
   }
 
-  return os.NewFile(uintptr(fd), "btle"), nil
+  return os.NewFile(uintptr(fd), name), nil
 
 }
 
