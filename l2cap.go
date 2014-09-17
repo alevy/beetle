@@ -46,13 +46,13 @@ const (
   L2CAP_LM_FIPS int = 0x0040
 )
 
-type UUID [6]uint8
+type DEV_ID [6]uint8
 
 type L2Sockaddr struct {
   buf [13]uint8
 }
 
-func NewL2Sockaddr(channel uint16, addr UUID, addr_type uint8) *L2Sockaddr {
+func NewL2Sockaddr(channel uint16, addr DEV_ID, addr_type uint8) *L2Sockaddr {
   res := &L2Sockaddr{}
   *((*uint16)(unsafe.Pointer(&res.buf[0]))) = uint16(AF_BLUETOOTH)
   for i := 0; i < len(addr); i++ {
@@ -94,7 +94,7 @@ func NewBLE(remoteAddr *L2Sockaddr, name string) (*os.File, error){
     return nil, err
   }
 
-  addr := NewL2Sockaddr(4, UUID{0, 0, 0, 0, 0, 0}, BDADDR_LE_PUBLIC)
+  addr := NewL2Sockaddr(4, DEV_ID{0, 0, 0, 0, 0, 0}, BDADDR_LE_PUBLIC)
   err = bind(fd, addr)
   if err != nil {
     return nil, err
@@ -119,8 +119,8 @@ func NewBLE(remoteAddr *L2Sockaddr, name string) (*os.File, error){
 
 }
 
-func Str2Ba(addrStr string) (UUID, error) {
-  var remoteAddr UUID
+func Str2Ba(addrStr string) (DEV_ID, error) {
+  var remoteAddr DEV_ID
   addrComponents := strings.Split(addrStr, ":")
   if (len(addrComponents) != 6) {
     return remoteAddr, errors.New("Bad address format")

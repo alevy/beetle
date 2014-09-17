@@ -42,9 +42,10 @@ type AttPDU interface {
   Msg()    []byte
 }
 
-type Error struct {
-  msg    []byte
-}
+type UUID [16]uint8
+
+var BLUETOOTH_BASE_UUID [12]byte =
+  [12]byte{0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
 
 type HandleInfo struct {
   format uint8
@@ -54,7 +55,18 @@ type HandleInfo struct {
   uuid UUID
 }
 
-func NewError(msg []byte) (*Error, error) {
+type Error struct {
+  msg    []byte
+}
+
+func NewError(reqOpcode uint8, handle uint16, errCode uint8) (*Error) {
+  return &Error{[]byte{ATT_OPCODE_ERROR,
+                       reqOpcode,
+                       byte(handle & 0xff), byte(handle >> 8),
+                       errCode}}
+}
+
+func ParseError(msg []byte) (*Error, error) {
   if len(msg) == 5 {
     return &Error{msg}, nil
   } else {
@@ -113,11 +125,16 @@ func (this *FindInfoResponse) InfoData() []*HandleInfo {
 
     handleNum := uint16(buf[0]) + uint16(buf[1]) << 16
     var uuid UUID
-    uuid[0] = buf[2]
-    uuid[1] = buf[3]
     if format == 2 {
-      for j := 2; j < 16; j++ {
-        uuid[j] = buf[j + 2]
+      for j := 0; j < 16; j++ {
+        uuid[j] = buf[j]
+      }
+    } else {
+      uuid[2] = buf[2]
+      uuid[3] = buf[3]
+
+      for j := 4; j < 16; j++ {
+        uuid[j] = BLUETOOTH_BASE_UUID[j - 4]
       }
     }
 
@@ -159,10 +176,93 @@ func ParseReadByGroupTypeResponse(msg []byte) (*ReadByGroupTypeResponse, error) 
   }
 }
 
+type FindByTypeValueRequest struct {
+  msg []byte
+}
+
+func ParseFindByTypeValueRequest(msg []byte) (*FindByTypeValueRequest, error) {
+  if len(msg) >= 7 {
+    return &FindByTypeValueRequest{msg}, nil
+  } else {
+    return nil, errors.New("Message is not the right length")
+  }
+}
+
+func (this *FindByTypeValueRequest) StartHandle() uint16 {
+  return uint16(this.msg[1]) | uint16(this.msg[2]) << 8
+}
+
+func (this *FindByTypeValueRequest) EndHandle() uint16 {
+  return uint16(this.msg[3]) | uint16(this.msg[4]) << 8
+}
+
+func (this *FindByTypeValueRequest) Type() UUID {
+  var uuid UUID
+  uuid[2] = this.msg[5]
+  uuid[3] = this.msg[6]
+
+  for j := 4; j < 16; j++ {
+    uuid[j] = BLUETOOTH_BASE_UUID[j - 4]
+  }
+  return uuid
+}
+
+func (this *FindByTypeValueRequest) Value() []byte {
+  return this.msg[7:]
+}
+
+type FindByTypeValueResponse struct {
+  msg []byte
+}
+
+func NewFindByTypeValueResponse(vals []*GroupValue) (*FindByTypeValueResponse) {
+  msg := make([]byte, 24)
+  msg[0] = ATT_OPCODE_FIND_BY_TYPE_VALUE_RESPONSE
+
+  i := 1
+  cutShort := false
+  for _, val := range vals {
+    if i > 20 {
+      cutShort = true
+      break
+    }
+    msg[i] = byte(val.handle & 0xff)
+    i++
+    msg[i] = byte(val.handle >> 8)
+    i++
+    msg[i] = byte(val.endGroup & 0xff)
+    i++
+    msg[i] = byte(val.endGroup >> 8)
+    i++
+  }
+
+  if !cutShort {
+    msg[i - 1] = 0xff
+    msg[i - 2] = 0xff
+  }
+
+  return &FindByTypeValueResponse{msg[0:i]}
+}
+
 type GroupValue struct {
   handle uint16
   endGroup uint16
   value []byte
+}
+
+type GroupValueLst []*GroupValue
+func (this GroupValueLst) Len() int {
+  return len(this)
+}
+
+func (this GroupValueLst) Less(i, j int) bool {
+  return this[i].handle < this[j].handle
+}
+
+func (this GroupValueLst) Swap(i, j int) {
+  tmp := this[i]
+  this[i] = this[j]
+  this[j] = tmp
 }
 
 func (this *ReadByGroupTypeResponse) Length() uint8 {

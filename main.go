@@ -2,7 +2,6 @@ package main
 
 import (
   "bufio"
-  "errors"
   "fmt"
   "io"
   "os"
@@ -10,123 +9,11 @@ import (
   "strings"
 )
 
-type Manager struct {
-  devices []*Device
-  globalHandleOffset int
-  associations map[int][]int
-}
-
-func (this *Manager) connectTo(addr string) error {
-  remoteAddr, err := Str2Ba(addr)
-  if err != nil {
-    return err
-  }
-
-  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM), addr)
-  if err != nil {
-    return err
-  }
-
-  device := NewDevice(addr, f)
-  this.devices = append(this.devices, device)
-
-  return nil
-}
-
-func (this *Manager) start(idx int) error {
-  if idx >= len(this.devices) || idx < 0 {
-    return errors.New("No such device")
-  }
-
-  device := this.devices[idx]
-  device.Start()
-  device.StartClient()
-
-  handles, err := DiscoverHandles(device)
-  if err != nil {
-    device.fd.Close()
-    return err
-  }
-
-  this.globalHandleOffset += len(handles) + 1
-  device.handleOffset = this.globalHandleOffset
-
-  for _, handle := range handles {
-    device.handles[handle.handle] = handle
-  }
-
-  groupVals, err := DiscoverServices(device)
-  if err != nil {
-    device.fd.Close()
-    return err
-  }
-
-  for _,v := range groupVals {
-    device.handles[v.handle].cachedValue = v.value
-    device.handles[v.handle].endGroup = v.endGroup
-  }
-
-  handleVals, err := DiscoverCharacteristics(device)
-  if err != nil {
-    device.fd.Close()
-    return err
-  }
-
-  for _,v := range handleVals {
-    device.handles[v.handle].cachedValue = v.value
-  }
-
-  go device.StartServer()
-
-  return nil
-}
-
-func (this *Manager) disconnectFrom(idx int) error {
-  if idx >= len(this.devices) || idx < 0 {
-    return errors.New("No such device")
-  }
-
-  device := this.devices[idx]
-
-  err := device.fd.Close()
-  if err != nil {
-    return err
-  }
-
-  this.devices = append(this.devices[0:idx], this.devices[idx + 1:]...)
-  delete(this.associations, idx)
-  for cl,lst := range this.associations {
-    for i,v := range lst {
-      if v == idx {
-        this.associations[cl] = append(lst[0:i], lst[i + 1:]...)
-        break
-      }
-    }
-    if len(this.associations) == 0 {
-      delete(this.associations, cl)
-    }
-  }
-  return nil
-}
-
-func (this *Manager) serveTo(serverIdx, clientIdx int) error {
-  if clientIdx >= len(this.devices) || serverIdx >= len(this.devices) {
-    return errors.New("No such device")
-  }
-
-  if lst,ok := this.associations[clientIdx]; ok {
-    this.associations[clientIdx] = append(lst, serverIdx)
-  } else {
-    this.associations[clientIdx] = []int {serverIdx}
-  }
-
-  return nil
-}
-
 func main() {
 
   bio := bufio.NewReader(os.Stdin)
-  manager := &Manager{make([]*Device, 0), 0, make(map[int][]int)}
+  manager := NewManager()
+  go manager.RunRouter()
   for {
     fmt.Printf("> ")
     lineBs, _, err := bio.ReadLine()
@@ -194,7 +81,7 @@ func main() {
         fmt.Printf("No connected devices\n")
       }
       for idx,device := range(manager.devices) {
-        fmt.Printf("%02d:\t%s\n", idx, device.addr)
+        fmt.Printf("%02d:\t%s\t%d\n", idx, device.addr, device.handleOffset)
       }
     case "handles":
       if len(parts) < 2 {
@@ -218,6 +105,7 @@ func main() {
     case "serve":
       if len(parts) < 3 {
         fmt.Printf("Usage: serve [server_idx] [client_idx]\n")
+        continue
       }
       serverIdx, err := strconv.ParseInt(parts[1], 10, 0)
       if err != nil {
@@ -234,6 +122,18 @@ func main() {
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
         continue
+      }
+    case "debug":
+      if (len(parts) < 2) {
+        fmt.Printf("Usage: debug on|off\n")
+        continue
+      }
+      if parts[1] == "on" {
+        debug = true
+        fmt.Printf("Debugging on...\n")
+      } else {
+        fmt.Printf("Debugging off...\n")
+        debug = false
       }
     default:
       fmt.Printf("Unknown command \"%s\"\n", parts[0])
