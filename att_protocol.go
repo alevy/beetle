@@ -244,6 +244,93 @@ func NewFindByTypeValueResponse(vals []*GroupValue) (*FindByTypeValueResponse) {
   return &FindByTypeValueResponse{msg[0:i]}
 }
 
+type ReadByTypeRequest struct {
+  msg []byte
+}
+
+func NewReadByTypeRequest(startHandle, endHandle uint16, attType UUID) (*ReadByTypeRequest){
+  msg := make([]byte, 7)
+  msg[0] = ATT_OPCODE_READ_BY_TYPE_REQUEST
+  msg[1] = byte(startHandle & 0xff)
+  msg[2] = byte(startHandle >> 8)
+  msg[3] = byte(endHandle & 0xff)
+  msg[4] = byte(endHandle >> 8)
+  msg[5] = attType[2]
+  msg[6] = attType[3]
+  return &ReadByTypeRequest{msg}
+}
+
+func ParseReadByTypeRequest(msg []byte) (*ReadByTypeRequest, error) {
+  if len(msg) == 7 || len(msg) == 21 {
+    return &ReadByTypeRequest{msg}, nil
+  } else {
+    return nil, errors.New("Message is not the right length")
+  }
+}
+
+func (this *ReadByTypeRequest) StartHandle() uint16 {
+  return uint16(this.msg[1]) | uint16(this.msg[2]) << 8
+}
+
+func (this *ReadByTypeRequest) EndHandle() uint16 {
+  return uint16(this.msg[3]) | uint16(this.msg[4]) << 8
+}
+
+func (this *ReadByTypeRequest) Type() UUID {
+  var uuid UUID
+  if len(this.msg) == 7 {
+    uuid[2] = this.msg[5]
+    uuid[3] = this.msg[6]
+
+    for j := 4; j < 16; j++ {
+      uuid[j] = BLUETOOTH_BASE_UUID[j - 4]
+    }
+  } else {
+    for i := 0; i < 16; i++ {
+      uuid[i] = this.msg[5 + i]
+    }
+  }
+  return uuid
+}
+
+type ReadByTypeResponse struct {
+  msg []byte
+}
+
+func NewReadByTypeResponse(vals []*GroupValue) (*ReadByTypeResponse) {
+  msg := make([]byte, 24)
+  msg[0] = ATT_OPCODE_READ_BY_TYPE_RESPONSE
+
+  baseLen := len(vals[0].value)
+  msg[1] = byte(baseLen) + 2
+  i := 2
+  for _, val := range vals {
+    if len(val.value) != baseLen {
+      break
+    }
+    if i > len(msg) - 2 - len(val.value) {
+      break
+    }
+    msg[i] = byte(val.handle & 0xff)
+    i++
+    msg[i] = byte(val.handle >> 8)
+    i++
+    copy(msg[i:], val.value)
+    i += len(val.value)
+  }
+
+  return &ReadByTypeResponse{msg[0:i]}
+}
+
+func ParseReadByTypeResponse(msg []byte) (*ReadByTypeResponse, error) {
+  if len(msg) >= 4 {
+    return &ReadByTypeResponse{msg}, nil
+  } else {
+    return nil, errors.New("Message is not the right length")
+  }
+}
+
+
 type GroupValue struct {
   handle uint16
   endGroup uint16
@@ -290,18 +377,6 @@ func (this *ReadByGroupTypeResponse) DataList() []*GroupValue {
     vals = append(vals, groupVal)
   }
   return vals
-}
-
-type ReadByTypeResponse struct {
-  msg []byte
-}
-
-func ParseReadByTypeResponse(msg []byte) (*ReadByTypeResponse, error) {
-  if len(msg) >= 4 {
-    return &ReadByTypeResponse{msg}, nil
-  } else {
-    return nil, errors.New("Message is not the right length")
-  }
 }
 
 type HandleValue struct {

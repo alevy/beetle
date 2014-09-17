@@ -42,7 +42,7 @@ func (this *Manager) RunRouter() {
 
       handles := make(GroupValueLst, 0, 100)
       for _,device := range this.devices {
-        if device.handleOffset < 0 || device.handleOffset + 1 < int(startHandle) {
+        if device == req.device || device.handleOffset < 0 {
           continue
         }
         if device.handleOffset > int(endHandle) {
@@ -66,6 +66,43 @@ func (this *Manager) RunRouter() {
       } else {
         resp := NewError(ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST, startHandle, 0x0A)
         req.device.Respond(resp.msg)
+      }
+    case ATT_OPCODE_READ_BY_TYPE_REQUEST:
+      readReq, err := ParseReadByTypeRequest(pkt)
+      if err != nil {
+        resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, 0, 4)
+        req.device.Respond(resp.msg)
+        continue
+      }
+
+      startHandle := readReq.StartHandle()
+      endHandle := readReq.EndHandle()
+      attType := readReq.Type()
+
+
+      //handles := make(GroupValueLst, 0, 100)
+      for _,device := range this.devices {
+        offset := uint16(device.handleOffset)
+        if startHandle >= offset + 1 &&
+           startHandle <= offset + uint16(len(device.handles)) {
+          remoteReq := NewReadByTypeRequest(startHandle - offset,
+                        endHandle - offset, attType)
+          respBuf, _ := device.Transaction(remoteReq.msg)
+          if respBuf[0] == ATT_OPCODE_ERROR {
+            resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, startHandle, 0x0A)
+            req.device.Respond(resp.msg)
+          } else {
+            segLen := int(respBuf[1])
+            for i := 2; i < len(respBuf); i += segLen {
+              h := uint16(respBuf[i]) + uint16(respBuf[i + 1]) << 8
+              h += offset
+              respBuf[i] = byte(h & 0xff)
+              respBuf[i + 1] = byte(h >> 8)
+            }
+            req.device.Respond(respBuf)
+          }
+          break
+        }
       }
     case ATT_OPCODE_READ_REQUEST:
       fallthrough
