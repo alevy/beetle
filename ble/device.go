@@ -1,11 +1,11 @@
-package main
+package ble
 
 import (
   "fmt"
   "os"
 )
 
-var debug bool = false
+var Debug bool = false
 
 type Response struct {
   value []byte
@@ -35,6 +35,20 @@ type Device struct {
   clientInChan    chan WriteReq
 }
 
+func (device *Device) String() string {
+  return fmt.Sprintf("%s\t%d", device.addr, device.handleOffset)
+}
+
+func (device *Device) StrHandles() string {
+  result := ""
+  for _, handle := range device.handles {
+    result += fmt.Sprintf("0x%02X:\t%v\t%v\tsubscribers: %d\n",
+      handle.handle, handle.uuid, handle.cachedValue,
+      len(handle.subscribers))
+  }
+  return result
+}
+
 func NewDevice(addr string, serverReqChan chan ManagerRequest, fd *os.File) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1,
     make(chan Response, 1), serverReqChan, make(chan []byte),
@@ -50,7 +64,7 @@ func (this *Device) Start() {
       if err != nil {
         this.clientRespChan <-Response{nil, err}
       } else {
-        if debug {
+        if Debug {
           fmt.Printf("%s -> %v\n", this.addr, buf[0:n])
         }
         resp := buf[0:n]
@@ -69,7 +83,7 @@ func (this *Device) Start() {
   go func() {
     for {
       req := <-this.writeChan
-      if debug {
+      if Debug {
         fmt.Printf("%s <- %v\n", this.addr, req)
       }
       this.fd.Write(req)

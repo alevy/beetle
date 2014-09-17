@@ -1,4 +1,4 @@
-package main
+package ble
 
 import (
   "errors"
@@ -10,7 +10,7 @@ type ManagerRequest struct {
 }
 
 type Manager struct {
-  devices []*Device
+  Devices []*Device
   globalHandleOffset int
   associations map[int][]int
   requestChan chan ManagerRequest
@@ -21,7 +21,7 @@ func NewManager() (*Manager) {
     make(chan ManagerRequest)}
 }
 
-func (this *Manager) connectTo(addr string) error {
+func (this *Manager) ConnectTo(addr string) error {
   remoteAddr, err := Str2Ba(addr)
   if err != nil {
     return err
@@ -33,17 +33,17 @@ func (this *Manager) connectTo(addr string) error {
   }
 
   device := NewDevice(addr, this.requestChan, f)
-  this.devices = append(this.devices, device)
+  this.Devices = append(this.Devices, device)
 
   return nil
 }
 
-func (this *Manager) start(idx int) error {
-  if idx >= len(this.devices) || idx < 0 {
+func (this *Manager) Start(idx int) error {
+  if idx >= len(this.Devices) || idx < 0 {
     return errors.New("No such device")
   }
 
-  device := this.devices[idx]
+  device := this.Devices[idx]
   device.Start()
   device.StartClient()
 
@@ -85,19 +85,19 @@ func (this *Manager) start(idx int) error {
   return nil
 }
 
-func (this *Manager) disconnectFrom(idx int) error {
-  if idx >= len(this.devices) || idx < 0 {
+func (this *Manager) DisconnectFrom(idx int) error {
+  if idx >= len(this.Devices) || idx < 0 {
     return errors.New("No such device")
   }
 
-  device := this.devices[idx]
+  device := this.Devices[idx]
 
   err := device.fd.Close()
   if err != nil {
     return err
   }
 
-  this.devices = append(this.devices[0:idx], this.devices[idx + 1:]...)
+  this.Devices = append(this.Devices[0:idx], this.Devices[idx + 1:]...)
   delete(this.associations, idx)
   for cl,lst := range this.associations {
     for i,v := range lst {
@@ -113,8 +113,8 @@ func (this *Manager) disconnectFrom(idx int) error {
   return nil
 }
 
-func (this *Manager) serveTo(serverIdx, clientIdx int) error {
-  if clientIdx >= len(this.devices) || serverIdx >= len(this.devices) {
+func (this *Manager) ServeTo(serverIdx, clientIdx int) error {
+  if clientIdx >= len(this.Devices) || serverIdx >= len(this.Devices) {
     return errors.New("No such device")
   }
 

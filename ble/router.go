@@ -1,4 +1,4 @@
-package main
+package ble
 
 import (
   "bytes"
@@ -16,7 +16,7 @@ func (this *Manager) RouteFindInfo(req ManagerRequest) {
     endHandle := findReq.EndHandle()
 
     handles := make(HandleUUIDLst, 0, 10)
-    for _, device := range this.devices {
+    for _, device := range this.Devices {
       offset := uint16(device.handleOffset)
 
       if device == req.device || device.handleOffset < 0 ||
@@ -63,7 +63,7 @@ func (this *Manager) RouteFindByTypeValue(req ManagerRequest) {
     attVal := findReq.Value()
 
     handles := make(GroupValueLst, 0, 10)
-    for _,device := range this.devices {
+    for _,device := range this.Devices {
       offset := uint16(device.handleOffset)
 
       if device == req.device || device.handleOffset < 0 ||
@@ -109,7 +109,7 @@ func (this *Manager) RouteReadByType(req ManagerRequest) {
   attType := readReq.Type()
 
 
-  for _,device := range this.devices {
+  for _,device := range this.Devices {
     offset := uint16(device.handleOffset)
     if startHandle >= offset + 1 &&
        startHandle <= offset + uint16(len(device.handles)) {
@@ -154,7 +154,7 @@ func (this *Manager) RunRouter() {
     case ATT_OPCODE_HANDLE_VALUE_NOTIFICATION:
       handleNum := uint16(pkt[1]) + uint16(pkt[2]) << 8
       var device *Device
-      for _,d := range this.devices {
+      for _,d := range this.Devices {
         if d.handleOffset + 1 < int(handleNum) &&
           len(d.handles) + d.handleOffset + 1 > int(handleNum) {
           device = d
@@ -189,7 +189,7 @@ func (this *Manager) RunRouter() {
     case ATT_OPCODE_SIGNED_WRITE_COMMAND:
       handleNum := uint16(pkt[1]) + uint16(pkt[2]) << 8
       var device *Device
-      for _,d := range this.devices {
+      for _,d := range this.Devices {
         if d.handleOffset + 1 < int(handleNum) &&
           len(d.handles) + d.handleOffset + 1 > int(handleNum) {
           device = d

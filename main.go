@@ -1,6 +1,7 @@
 package main
 
 import (
+  "./ble"
   "bufio"
   "fmt"
   "io"
@@ -12,7 +13,7 @@ import (
 func main() {
 
   bio := bufio.NewReader(os.Stdin)
-  manager := NewManager()
+  manager := ble.NewManager()
   go manager.RunRouter()
   for {
     fmt.Printf("> ")
@@ -36,7 +37,7 @@ func main() {
         continue
       }
       fmt.Printf("Connecting to %s... ", parts[1])
-      err = manager.connectTo(parts[1])
+      err = manager.ConnectTo(parts[1])
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -53,7 +54,7 @@ func main() {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      err = manager.disconnectFrom(int(idx))
+      err = manager.DisconnectFrom(int(idx))
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -70,18 +71,18 @@ func main() {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      err = manager.start(int(idx))
+      err = manager.Start(int(idx))
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
         fmt.Printf("done\n")
       }
     case "devices":
-      if len(manager.devices) == 0 {
+      if len(manager.Devices) == 0 {
         fmt.Printf("No connected devices\n")
       }
-      for idx,device := range(manager.devices) {
-        fmt.Printf("%02d:\t%s\t%d\n", idx, device.addr, device.handleOffset)
+      for idx,device := range(manager.Devices) {
+        fmt.Printf("%02d:\t%s\n", idx, device)
       }
     case "handles":
       if len(parts) < 2 {
@@ -93,16 +94,12 @@ func main() {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      if int(idx) >= len(manager.devices) || int(idx) < 0 {
+      if int(idx) >= len(manager.Devices) || int(idx) < 0 {
         fmt.Printf("Unknown device %s\n", parts[1])
         continue
       }
-      device := manager.devices[idx]
-      for _, handle := range device.handles {
-        fmt.Printf("0x%02X:\t%v\t%v\tsubscribers: %d\n",
-          handle.handle, handle.uuid, handle.cachedValue,
-          len(handle.subscribers))
-      }
+      device := manager.Devices[idx]
+      fmt.Printf("%s", device.StrHandles())
     case "serve":
       if len(parts) < 3 {
         fmt.Printf("Usage: serve [server_idx] [client_idx]\n")
@@ -119,7 +116,7 @@ func main() {
         continue
       }
 
-      err = manager.serveTo(int(serverIdx), int(clientIdx))
+      err = manager.ServeTo(int(serverIdx), int(clientIdx))
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
         continue
@@ -130,11 +127,11 @@ func main() {
         continue
       }
       if parts[1] == "on" {
-        debug = true
+        ble.Debug = true
         fmt.Printf("Debugging on...\n")
       } else {
         fmt.Printf("Debugging off...\n")
-        debug = false
+        ble.Debug = false
       }
     default:
       fmt.Printf("Unknown command \"%s\"\n", parts[0])
