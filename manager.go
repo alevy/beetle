@@ -57,7 +57,8 @@ func (this *Manager) start(idx int) error {
   this.globalHandleOffset += len(handles)
 
   for _, handle := range handles {
-    device.handles[handle.handle] = handle
+    h := &Handle{*handle, nil}
+    device.handles[handle.handle] = h
   }
 
   groupVals, err := DiscoverServices(device)

@@ -5,6 +5,51 @@ import (
   "sort"
 )
 
+func (this *Manager) RouteFindInfo(req ManagerRequest) {
+  findReq, err := ParseFindInfoRequest(req.msg)
+  if err != nil {
+    resp := NewError(ATT_OPCODE_FIND_INFO_REQUEST, 0, 4)
+    req.device.Respond(resp.msg)
+    return
+  } else {
+    startHandle := findReq.StartHandle()
+    endHandle := findReq.EndHandle()
+
+    handles := make(HandleUUIDLst, 0, 10)
+    for _, device := range this.devices {
+      offset := uint16(device.handleOffset)
+
+      if device == req.device || device.handleOffset < 0 ||
+        offset + uint16(len(device.handles)) < startHandle {
+        continue
+      }
+      if device.handleOffset > int(endHandle) {
+        break
+      }
+
+      for _, handle := range device.handles {
+        if handle.handle + offset >= startHandle &&
+            handle.handle + offset <= endHandle {
+          h := HandleUUID{handle.handle + offset, handle.uuid}
+          h.handle += offset
+          handles = append(handles, h)
+        }
+      }
+    }
+
+    sort.Sort(handles)
+
+    if len(handles) > 0 {
+      resp := NewFindInfoResponse(handles)
+      req.device.Respond(resp.msg)
+    } else {
+      resp := NewError(ATT_OPCODE_FIND_INFO_REQUEST, startHandle, 0x0A)
+      req.device.Respond(resp.msg)
+    }
+  }
+}
+
+
 func (this *Manager) RouteFindByTypeValue(req ManagerRequest) {
   findReq, err := ParseFindByTypeValueRequest(req.msg)
   if err != nil {
@@ -17,18 +62,22 @@ func (this *Manager) RouteFindByTypeValue(req ManagerRequest) {
     attType := findReq.Type()
     attVal := findReq.Value()
 
-    handles := make(GroupValueLst, 0, 100)
+    handles := make(GroupValueLst, 0, 10)
     for _,device := range this.devices {
-      if device == req.device || device.handleOffset < 0 {
+      offset := uint16(device.handleOffset)
+
+      if device == req.device || device.handleOffset < 0 ||
+        offset + uint16(len(device.handles)) < startHandle {
         continue
       }
-      if device.handleOffset > int(endHandle) {
+      if offset > endHandle {
         break
       }
 
       for _, handle := range device.handles {
-        if handle.uuid == attType && bytes.Equal(handle.cachedValue, attVal) {
-          offset := uint16(device.handleOffset)
+        if handle.handle + offset >= startHandle &&
+            handle.handle + offset <= endHandle &&
+            handle.uuid == attType && bytes.Equal(handle.cachedValue, attVal) {
           h := &GroupValue{handle.handle + offset, handle.endGroup + offset, nil}
           handles = append(handles, h)
         }
@@ -95,11 +144,40 @@ func (this *Manager) RunRouter() {
   for req := range this.requestChan {
     pkt := req.msg
     switch(pkt[0]) {
+    case ATT_OPCODE_FIND_INFO_REQUEST:
+      this.RouteFindInfo(req)
     case ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST:
       this.RouteFindByTypeValue(req)
     case ATT_OPCODE_READ_BY_TYPE_REQUEST:
       this.RouteReadByType(req)
 
+    case ATT_OPCODE_HANDLE_VALUE_NOTIFICATION:
+      handleNum := uint16(pkt[1]) + uint16(pkt[2]) << 8
+      var device *Device
+      for _,d := range this.devices {
+        if d.handleOffset + 1 < int(handleNum) &&
+          len(d.handles) + d.handleOffset + 1 > int(handleNum) {
+          device = d
+          break
+        }
+      }
+      if device == nil {
+        continue
+      }
+
+      remoteHandle := handleNum - uint16(device.handleOffset)
+      proxyHandle := device.handles[remoteHandle]
+
+      if proxyHandle == nil {
+        continue
+      }
+
+      pkt[1] = byte(remoteHandle & 0xff)
+      pkt[2] = byte(remoteHandle >> 8)
+
+      for _, dev := range proxyHandle.subscribers {
+        go dev.WriteCmd(pkt)
+      }
     case ATT_OPCODE_READ_REQUEST:
       fallthrough
     case ATT_OPCODE_READ_BLOB_REQUEST:
@@ -123,27 +201,48 @@ func (this *Manager) RunRouter() {
         req.device.Respond(resp.msg)
         continue
       }
+
       remoteHandle := handleNum - uint16(device.handleOffset)
-      if device.handles[remoteHandle] == nil {
+      proxyHandle := device.handles[remoteHandle]
+
+      if proxyHandle == nil {
         resp := NewError(pkt[0], handleNum, 0x1)
         req.device.Respond(resp.msg)
         continue
       }
-      pkt[1] = byte(remoteHandle & 0xff)
-      pkt[2] = byte(remoteHandle >> 8)
-      go func() {
-        if pkt[1] == ATT_OPCODE_WRITE_COMMAND || pkt[1] == ATT_OPCODE_SIGNED_WRITE_COMMAND {
-          device.WriteCmd(pkt)
+
+      if pkt[0] == ATT_OPCODE_WRITE_REQUEST && proxyHandle.uuid == GATT_CLIENT_CONFIGURATION_UUID {
+        if proxyHandle.subscribers == nil {
+          proxyHandle.subscribers = []*Device{req.device}
+          go func() {
+            resp, err := device.Transaction(pkt)
+            if err != nil {
+              errResp := NewError(pkt[1], handleNum, 0x0E)
+              req.device.Respond(errResp.msg)
+            } else {
+              req.device.Respond(resp)
+            }
+          }()
         } else {
-          resp, err := device.Transaction(pkt)
-          if err != nil {
-            errResp := NewError(pkt[1], handleNum, 0x0E)
-            req.device.Respond(errResp.msg)
-          } else {
-            req.device.Respond(resp)
-          }
+          proxyHandle.subscribers = append(proxyHandle.subscribers, device)
         }
-      }()
+      } else {
+        pkt[1] = byte(remoteHandle & 0xff)
+        pkt[2] = byte(remoteHandle >> 8)
+        go func() {
+          if pkt[0] == ATT_OPCODE_WRITE_COMMAND || pkt[0] == ATT_OPCODE_SIGNED_WRITE_COMMAND {
+            device.WriteCmd(pkt)
+          } else {
+            resp, err := device.Transaction(pkt)
+            if err != nil {
+              errResp := NewError(pkt[1], handleNum, 0x0E)
+              req.device.Respond(errResp.msg)
+            } else {
+              req.device.Respond(resp)
+            }
+          }
+        }()
+      }
     }
   }
 }

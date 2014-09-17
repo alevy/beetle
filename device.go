@@ -17,10 +17,15 @@ type WriteReq struct {
   respChan      chan Response
 }
 
+type Handle struct {
+  HandleInfo
+  subscribers []*Device
+}
+
 type Device struct {
   addr          string
   fd            *os.File
-  handles       map[uint16]*HandleInfo
+  handles       map[uint16]*Handle
   handleOffset  int
 
   clientRespChan chan Response
@@ -31,7 +36,7 @@ type Device struct {
 }
 
 func NewDevice(addr string, serverReqChan chan ManagerRequest, fd *os.File) *Device {
-  return &Device{addr, fd, make(map[uint16]*HandleInfo), -1,
+  return &Device{addr, fd, make(map[uint16]*Handle), -1,
     make(chan Response, 1), serverReqChan, make(chan []byte),
     make(chan WriteReq)}
 }

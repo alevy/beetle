@@ -99,8 +99,9 @@ func main() {
       }
       device := manager.devices[idx]
       for _, handle := range device.handles {
-        fmt.Printf("0x%02X:\t%v\t%v\n",
-          handle.handle, handle.uuid, handle.cachedValue)
+        fmt.Printf("0x%02X:\t%v\t%v\tsubscribers: %d\n",
+          handle.handle, handle.uuid, handle.cachedValue,
+          len(handle.subscribers))
       }
     case "serve":
       if len(parts) < 3 {

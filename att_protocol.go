@@ -46,6 +46,8 @@ type UUID [16]uint8
 
 var BLUETOOTH_BASE_UUID [12]byte =
   [12]byte{0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
+var GATT_CLIENT_CONFIGURATION_UUID UUID =
+  [16]byte{0, 0, 0x2, 0x029, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
 
 type HandleInfo struct {
   format uint8
@@ -90,8 +92,72 @@ func (this *Error) ErrorCode() uint8 {
   return this.msg[4]
 }
 
+type FindInfoRequest struct {
+  msg []byte
+}
+
+func ParseFindInfoRequest(msg []byte) (*FindInfoRequest, error) {
+  if len(msg) != 5 {
+    return nil, errors.New("Message must be 5 octects")
+  }
+
+  return &FindInfoRequest{msg}, nil
+}
+
+func (this *FindInfoRequest) StartHandle() uint16 {
+  return uint16(this.msg[1]) + uint16(this.msg[2]) << 8
+}
+
+func (this *FindInfoRequest) EndHandle() uint16 {
+  return uint16(this.msg[3]) + uint16(this.msg[4]) << 8
+}
+
+type HandleUUID struct {
+  handle uint16
+  uuid UUID
+}
+
+type HandleUUIDLst []HandleUUID
+
+func (this HandleUUIDLst) Len() int {
+  return len(this)
+}
+
+func (this HandleUUIDLst) Less(i, j int) bool {
+  return this[i].handle < this[j].handle
+}
+
+func (this HandleUUIDLst) Swap(i, j int) {
+  tmp := this[j]
+  this[j] = this[i]
+  this[i] = tmp
+}
+
 type FindInfoResponse struct {
   msg []byte
+}
+
+func NewFindInfoResponse(handles []HandleUUID) (*FindInfoResponse) {
+  msg := make([]byte, 24)
+  msg[0] = ATT_OPCODE_FIND_INFO_RESPONSE
+  msg[1] = 1
+  i := 2
+  for _, handle := range handles {
+    if i > len(msg) - 4 {
+      break
+    }
+
+    msg[i] = byte(handle.handle & 0xff)
+    i++
+    msg[i] = byte(handle.handle >> 8)
+    i++
+    msg[i] = handle.uuid[2]
+    i++
+    msg[i] = handle.uuid[3]
+    i++
+  }
+
+  return &FindInfoResponse{msg[0:i]}
 }
 
 func ParseFindInfoResponse(msg []byte) (*FindInfoResponse, error) {
