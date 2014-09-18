@@ -51,7 +51,7 @@ func main() {
     }
     resp := buf[0:n]
     fmt.Printf("%d %v\n", duration / time.Millisecond, resp)
-    time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+    time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
   }
 
   avgDuration := totalDuration / 100
