@@ -1,5 +1,6 @@
 package main
 
+
 // Measures the latency to do a read from the desktop to a peripheral device.
 // Goal: does a read return within a single connection interval or on the next
 //       one? If the range is between 0 and 1 connection interval, yes, if
@@ -21,6 +22,19 @@ func main() {
   }
 
   f, err := ble.NewBLE(ble.NewL2Sockaddr(4, addr, ble.BDADDR_LE_RANDOM), os.Args[1])
+  if err != nil {
+    fmt.Printf("%s\n", err)
+    os.Exit(1)
+  }
+
+  ci := ble.GetConnInfo(f)
+  hci, err := ble.NewHCI(0)
+  if err != nil {
+    fmt.Printf("%s\n", err)
+    os.Exit(1)
+  }
+
+  err = ble.HCIConnUpdate(hci, ci.HCIHandle, 40, 56, 0, 42)
   if err != nil {
     fmt.Printf("%s\n", err)
     os.Exit(1)

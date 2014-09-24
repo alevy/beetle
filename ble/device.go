@@ -2,7 +2,7 @@ package ble
 
 import (
   "fmt"
-  "os"
+  "io"
 )
 
 var Debug bool = false
@@ -24,7 +24,7 @@ type Handle struct {
 
 type Device struct {
   addr          string
-  fd            *os.File
+  fd            io.ReadWriteCloser
   handles       map[uint16]*Handle
   handleOffset  int
 
@@ -49,7 +49,7 @@ func (device *Device) StrHandles() string {
   return result
 }
 
-func NewDevice(addr string, serverReqChan chan ManagerRequest, fd *os.File) *Device {
+func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1,
     make(chan Response, 1), serverReqChan, make(chan []byte),
     make(chan WriteReq)}

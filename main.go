@@ -5,16 +5,37 @@ import (
   "bufio"
   "fmt"
   "io"
+  "net"
   "os"
   "strconv"
   "strings"
 )
+
+func listenUnix(manager *ble.Manager) {
+  listener, err := net.ListenUnix("unixpacket",
+    &net.UnixAddr{"/tmp/babel.sock", "unixpacket"})
+  if err != nil {
+    fmt.Printf("ERROR: %s\n", err)
+    os.Exit(1)
+  }
+  for {
+    conn, err := listener.AcceptUnix()
+    if err != nil {
+      fmt.Printf("ERROR: %s\n", err)
+      os.Exit(1)
+    }
+    manager.AddDeviceForConn(conn.RemoteAddr().String(), conn)
+    fmt.Printf("New app connected...\n")
+  }
+}
 
 func main() {
 
   bio := bufio.NewReader(os.Stdin)
   manager := ble.NewManager()
   go manager.RunRouter()
+  go listenUnix(manager)
+
   for {
     fmt.Printf("> ")
     lineBs, _, err := bio.ReadLine()

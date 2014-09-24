@@ -36,6 +36,10 @@ const (
 )
 
 const (
+  L2CAP_CONNINFO int = 0x02
+)
+
+const (
   L2CAP_LM int = 0x03
   L2CAP_LM_MASTER int =0x0001
   L2CAP_LM_AUTH int = 0x0002
@@ -135,4 +139,5 @@ func Str2Ba(addrStr string) (DEV_ID, error) {
   }
   return remoteAddr, nil
 }
+
 

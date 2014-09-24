@@ -2,6 +2,7 @@ package ble
 
 import (
   "errors"
+  "io"
 )
 
 type ManagerRequest struct {
@@ -32,10 +33,14 @@ func (this *Manager) ConnectTo(addr string) error {
     return err
   }
 
-  device := NewDevice(addr, this.requestChan, f)
-  this.Devices = append(this.Devices, device)
+  this.AddDeviceForConn(addr, f)
 
   return nil
+}
+
+func (this *Manager) AddDeviceForConn(addr string, f io.ReadWriteCloser) {
+  device := NewDevice(addr, this.requestChan, f)
+  this.Devices = append(this.Devices, device)
 }
 
 func (this *Manager) Start(idx int) error {
