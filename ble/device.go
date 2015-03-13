@@ -3,6 +3,7 @@ package ble
 import (
   "fmt"
   "io"
+  "time"
 )
 
 var Debug bool = false
@@ -19,7 +20,14 @@ type WriteReq struct {
 
 type Handle struct {
   HandleInfo
+  cachedTime time.Time
+  cachedMap  map[*Device]bool
   subscribers []*Device
+}
+
+type Transaction struct {
+  req   []byte
+  cb    func([]byte, error)
 }
 
 type Device struct {
@@ -28,11 +36,14 @@ type Device struct {
   handles       map[uint16]*Handle
   handleOffset  int
 
+  readPkt        chan []byte
   clientRespChan chan Response
   serverReqChan  chan ManagerRequest
   writeChan      chan []byte
+  transactionQ   chan Transaction
 
-  clientInChan    chan WriteReq
+  connInfo        *ConnInfo
+  first          bool
 }
 
 func (device *Device) String() string {
@@ -49,85 +60,68 @@ func (device *Device) StrHandles() string {
   return result
 }
 
-func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser) *Device {
+func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser, ci *ConnInfo) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1,
-    make(chan Response, 1), serverReqChan, make(chan []byte),
-    make(chan WriteReq)}
+    make(chan []byte, 1), make(chan Response, 1), serverReqChan,
+    make(chan []byte), make(chan Transaction, 100), ci, true}
 }
 
 func (this *Device) Start() {
-  // Read from socket and route to appropriate handler
   go func() {
     for {
       buf := make([]byte, 64)
       n, err := this.fd.Read(buf)
       if err != nil {
-        this.clientRespChan <-Response{nil, err}
-      } else {
-        if Debug {
-          fmt.Printf("%s -> %v\n", this.addr, buf[0:n])
-        }
-        resp := buf[0:n]
-        if (buf[0] & 1 == 1 && buf[0] != ATT_OPCODE_HANDLE_VALUE_NOTIFICATION &&
-            buf[0] != ATT_OPCODE_HANDLE_VALUE_INDICATION) ||
-            buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { // Response packet
-          this.clientRespChan <-Response{resp, nil}
-        } else {
-          this.serverReqChan <-ManagerRequest{resp, this}
-        }
+        close(this.readPkt)
+        close(this.clientRespChan)
+        return
       }
+      this.readPkt <- buf[0:n]
     }
   }()
 
   // Pass write packets to socket
   go func() {
-    for {
-      req := <-this.writeChan
+    for req := range this.writeChan {
       if Debug {
         fmt.Printf("%s <- %v\n", this.addr, req)
       }
-      this.fd.Write(req)
-    }
-  }()
-}
-
-func (this *Device) StartClient() {
-  // Client-side loop
-  go func() {
-    for {
-      req := <-this.clientInChan
-      this.writeChan <-req.packet
-      if req.respChan != nil {
-        resp := <-this.clientRespChan
-        req.respChan <-resp
+      _, err := this.fd.Write(req)
+      if err != nil {
+        return
       }
     }
   }()
-}
 
-/*func (this *Device) StartServer() {
-  //TODO: Server-side loop
-  for {
-    req := <-this.serverReqChan
-    if req.err != nil {
-    } else {
-      this.writeChan <- []byte{1, req.value[0], 0, 0, 0x11}
+  // Read from socket and route to appropriate handler
+  go func() {
+    for buf := range(this.readPkt) {
+      if Debug {
+        fmt.Printf("%s -> %v\n", this.addr, buf)
+      }
+      if (buf[0] & 1 == 1 && buf[0] != ATT_OPCODE_HANDLE_VALUE_NOTIFICATION &&
+          buf[0] != ATT_OPCODE_HANDLE_VALUE_INDICATION) ||
+          buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { // Response packet
+        this.clientRespChan <-Response{buf, nil}
+      } else {
+        this.serverReqChan <-ManagerRequest{buf, this}
+      }
     }
-  }
-}*/
+  }()
 
-func (this *Device) WriteCmd(packet []byte) {
-  this.clientInChan <- WriteReq{packet, nil}
 }
 
 func (this *Device) Respond(packet []byte) {
   this.writeChan <-packet
 }
 
-func (this *Device) Transaction(packet []byte) ([]byte, error) {
-  outChan := make(chan Response)
-  this.clientInChan <-WriteReq{packet, outChan}
-  resp := <-outChan
-  return resp.value, resp.err
+func (this *Device) WriteCmd(packet []byte) {
+  this.writeChan <-packet
+}
+
+func (this *Device) Transaction(packet []byte, cb func([]byte, error)) {
+  this.writeChan <-packet
+  resp :=<-this.clientRespChan
+  cb(resp.value, resp.err)
 }
 

@@ -12,19 +12,28 @@ import (
 )
 
 func listenUnix(manager *ble.Manager) {
-  listener, err := net.ListenUnix("unixpacket",
-    &net.UnixAddr{"/tmp/babel.sock", "unixpacket"})
+  /*os.Remove("/tmp/babel.sock")
+  addr, _ := net.ResolveUnixAddr("unixpacket", "/tmp/babel.sock")
+  listener, err := net.ListenUnix("unixpacket", addr)*/
+  addr, _ := net.ResolveTCPAddr("tcp", ":5555")
+  listener, err := net.ListenTCP("tcp", addr)
   if err != nil {
     fmt.Printf("ERROR: %s\n", err)
     os.Exit(1)
   }
+  if err != nil {
+    fmt.Printf("ERROR: %s\n", err)
+    os.Exit(1)
+  }
+
   for {
-    conn, err := listener.AcceptUnix()
+    conn, err := listener.Accept()
     if err != nil {
       fmt.Printf("ERROR: %s\n", err)
       os.Exit(1)
     }
-    manager.AddDeviceForConn(conn.RemoteAddr().String(), conn)
+    device := manager.AddDeviceForConn(conn.RemoteAddr().String(), conn, nil)
+    manager.StartDevice(device)
     fmt.Printf("New app connected...\n")
   }
 }
@@ -32,7 +41,13 @@ func listenUnix(manager *ble.Manager) {
 func main() {
 
   bio := bufio.NewReader(os.Stdin)
-  manager := ble.NewManager()
+  hciSock, err := ble.NewHCI(0)
+  if err != nil {
+    fmt.Printf("%s\n", err)
+  }
+
+  manager := ble.NewManager(hciSock)
+
   go manager.RunRouter()
   go listenUnix(manager)
 
@@ -52,6 +67,26 @@ func main() {
     parts := strings.Split(line, " ")
 
     switch parts[0] {
+    case "panic":
+      panic("AAA")
+    case "set-interval":
+      if len(parts) < 2 {
+        fmt.Printf("Usage: set-interval [interval]\n")
+        continue
+      }
+      interval64, err := strconv.ParseInt(parts[1], 10, 0)
+      if err != nil {
+        fmt.Printf("%s\n", err)
+        continue
+      }
+      interval := uint16(interval64)
+      for _,device := range(manager.Devices) {
+        res := manager.ConnUpdate(device, interval)
+        if res != 0 {
+          fmt.Printf("ERROR: %d\n", res)
+          break
+        }
+      }
     case "connect":
       if len(parts) < 2 {
         fmt.Printf("Usage: connect [device_address]\n")
@@ -93,6 +128,23 @@ func main() {
         continue
       }
       err = manager.Start(int(idx))
+      if err != nil {
+        fmt.Printf("ERROR: %s\n", err)
+      } else {
+        fmt.Printf("done\n")
+      }
+    case "startnd":
+      if len(parts) < 2 {
+        fmt.Printf("Usage: start [device_address]\n")
+        continue
+      }
+      fmt.Printf("Starting %s... ", parts[1])
+      idx, err := strconv.ParseInt(parts[1], 10, 0)
+      if err != nil {
+        fmt.Printf("ERROR: %s\n", err)
+        continue
+      }
+      err = manager.StartNoDiscover(int(idx))
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {

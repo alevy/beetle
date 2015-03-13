@@ -1,7 +1,12 @@
 package ble
 
+// #include <bluetooth/bluetooth.h>
+// #include <bluetooth/hci.h>
+// #include <bluetooth/hci_lib.h>
+// #cgo LDFLAGS: -lbluetooth
+import "C"
+
 import (
-  "fmt"
   "syscall"
   "os"
   "unsafe"
@@ -31,41 +36,9 @@ func NewHCI(dev_id uint8) (*os.File, error) {
 }
 
 func HCIConnUpdate(fd *os.File, handle, min_interval, max_interval,
-  latency, supervisor_timeout uint16) (error) {
-    // HCI_OP_LE_CONN_UPDATE		0x2013
-    // size 14
-
-    buf := make([]byte, 17)
-    buf[0] = 0x13
-    buf[1] = 0x20
-    buf[2] = 14
-
-    // handle
-    buf[3] = uint8(handle)
-    buf[4] = uint8(handle >> 8)
-
-    // conn interval min/max
-    buf[5] = uint8(min_interval)
-    buf[6] = uint8(min_interval >> 8)
-    buf[7] = uint8(max_interval)
-    buf[8] = uint8(max_interval >> 8)
-
-    // latency
-    buf[9] = uint8(latency)
-    buf[10] = uint8(latency >> 8)
-
-    // supervisor timeout
-    buf[11] = uint8(supervisor_timeout)
-    buf[12] = uint8(supervisor_timeout >> 8)
-
-    buf[13] = 0
-    buf[14] = 0
-    buf[15] = 0
-    buf[16] = 0
-
-    fmt.Printf("CONN UDPATE %v\n", buf)
-
-    _, err := fd.Write(buf)
-    return err
+  latency, supervisor_timeout uint16) (int) {
+    err := C.hci_le_conn_update(C.int(fd.Fd()), C.uint16_t(handle),
+      C.uint16_t(min_interval), C.uint16_t(max_interval), C.uint16_t(latency), C.uint16_t(supervisor_timeout), 0)
+    return int(err)
 }
 

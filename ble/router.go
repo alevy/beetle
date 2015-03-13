@@ -2,7 +2,9 @@ package ble
 
 import (
   "bytes"
+  "time"
   "sort"
+  "fmt"
 )
 
 func (this *Manager) RouteFindInfo(req ManagerRequest) {
@@ -115,25 +117,26 @@ func (this *Manager) RouteReadByType(req ManagerRequest) {
        startHandle <= offset + uint16(len(device.handles)) {
       remoteReq := NewReadByTypeRequest(startHandle - offset,
                     endHandle - offset, attType)
-      respBuf, err := device.Transaction(remoteReq.msg)
-      if err != nil {
-        resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, 0, 4)
-        req.device.Respond(resp.msg)
-        return
-      }
-      if respBuf[0] == ATT_OPCODE_ERROR {
-        resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, startHandle, 0x0A)
-        req.device.Respond(resp.msg)
-      } else {
-        segLen := int(respBuf[1])
-        for i := 2; i < len(respBuf); i += segLen {
-          h := uint16(respBuf[i]) + uint16(respBuf[i + 1]) << 8
-          h += offset
-          respBuf[i] = byte(h & 0xff)
-          respBuf[i + 1] = byte(h >> 8)
+      device.Transaction(remoteReq.msg, func(respBuf []byte, err error) {
+        if err != nil {
+          resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, 0, 4)
+          req.device.Respond(resp.msg)
+          return
         }
-        req.device.Respond(respBuf)
-      }
+        if respBuf[0] == ATT_OPCODE_ERROR {
+          resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, startHandle, 0x0A)
+          req.device.Respond(resp.msg)
+        } else {
+          segLen := int(respBuf[1])
+          for i := 2; i < len(respBuf); i += segLen {
+            h := uint16(respBuf[i]) + uint16(respBuf[i + 1]) << 8
+            h += offset
+            respBuf[i] = byte(h & 0xff)
+            respBuf[i + 1] = byte(h >> 8)
+          }
+          req.device.Respond(respBuf)
+        }
+      })
       return
     }
   }
@@ -141,9 +144,16 @@ func (this *Manager) RouteReadByType(req ManagerRequest) {
 }
 
 func (this *Manager) RunRouter() {
+  interval := uint16(6)
   for req := range this.requestChan {
     pkt := req.msg
     switch(pkt[0]) {
+    case 0xf0: // Change conn interval [0xff | conninterval uint16]
+      interval = uint16(pkt[1]) + uint16(pkt[2]) << 8
+      for _,device := range this.Devices {
+        this.ConnUpdate(device, interval)
+      }
+      req.device.Respond([]byte{0xf1})
     case ATT_OPCODE_FIND_INFO_REQUEST:
       this.RouteFindInfo(req)
     case ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST:
@@ -188,9 +198,23 @@ func (this *Manager) RunRouter() {
       fallthrough
     case ATT_OPCODE_SIGNED_WRITE_COMMAND:
       handleNum := uint16(pkt[1]) + uint16(pkt[2]) << 8
+
+      if handleNum == 0xffff && pkt[0] == ATT_OPCODE_WRITE_COMMAND {
+        interval := uint16(pkt[3]) + uint16(pkt[4]) << 8
+        for _,device := range this.Devices {
+          this.ConnUpdate(device, interval)
+        }
+        continue
+      } else if handleNum == 0xffff && pkt[0] == ATT_OPCODE_WRITE_REQUEST {
+        interval := uint16(pkt[3]) + uint16(pkt[4]) << 8
+        elapsed := uint16(pkt[5]) + uint16(pkt[6]) << 8
+        fmt.Fprintf(this.log, "%d,%d\n", interval, elapsed)
+        req.device.Respond([]byte{ATT_OPCODE_WRITE_RESPONSE})
+      }
+
       var device *Device
       for _,d := range this.Devices {
-        if d.handleOffset + 1 < int(handleNum) &&
+        if d.handleOffset < int(handleNum) &&
           len(d.handles) + d.handleOffset + 1 > int(handleNum) {
           device = d
           break
@@ -214,34 +238,46 @@ func (this *Manager) RunRouter() {
       if pkt[0] == ATT_OPCODE_WRITE_REQUEST && proxyHandle.uuid == GATT_CLIENT_CONFIGURATION_UUID {
         if proxyHandle.subscribers == nil {
           proxyHandle.subscribers = []*Device{req.device}
-          go func() {
-            resp, err := device.Transaction(pkt)
+          device.Transaction(pkt, func(resp []byte, err error){
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
               req.device.Respond(errResp.msg)
             } else {
               req.device.Respond(resp)
             }
-          }()
+          })
         } else {
           proxyHandle.subscribers = append(proxyHandle.subscribers, device)
         }
+      } else if pkt[0] == ATT_OPCODE_READ_REQUEST && proxyHandle.cachedValue != nil &&
+          !proxyHandle.cachedMap[req.device] &&
+          time.Since(proxyHandle.cachedTime) <= time.Duration(interval) * time.Millisecond {
+        proxyHandle.cachedMap[req.device] = true
+        resp := make([]byte, 1 + len(proxyHandle.cachedValue))
+        resp[0] = ATT_OPCODE_READ_RESPONSE
+        copy(resp[1:], proxyHandle.cachedValue)
+        req.device.Respond(resp)
       } else {
         pkt[1] = byte(remoteHandle & 0xff)
         pkt[2] = byte(remoteHandle >> 8)
-        go func() {
-          if pkt[0] == ATT_OPCODE_WRITE_COMMAND || pkt[0] == ATT_OPCODE_SIGNED_WRITE_COMMAND {
-            device.WriteCmd(pkt)
-          } else {
-            resp, err := device.Transaction(pkt)
+        if pkt[0] == ATT_OPCODE_WRITE_COMMAND || pkt[0] == ATT_OPCODE_SIGNED_WRITE_COMMAND {
+          device.WriteCmd(pkt)
+        } else {
+          device.Transaction(pkt, func(resp []byte, err error) {
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
               req.device.Respond(errResp.msg)
             } else {
+              if resp[0] == ATT_OPCODE_READ_RESPONSE {
+                proxyHandle.cachedMap = make(map[*Device]bool)
+                proxyHandle.cachedMap[req.device] = true
+                proxyHandle.cachedValue = resp[1:]
+                proxyHandle.cachedTime = time.Now()
+              }
               req.device.Respond(resp)
             }
-          }
-        }()
+          })
+        }
       }
     }
   }

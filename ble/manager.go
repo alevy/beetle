@@ -2,7 +2,9 @@ package ble
 
 import (
   "errors"
+  "time"
   "io"
+  "os"
 )
 
 type ManagerRequest struct {
@@ -15,11 +17,14 @@ type Manager struct {
   globalHandleOffset int
   associations map[int][]int
   requestChan chan ManagerRequest
+  hciSock     *os.File
+  log         *os.File
 }
 
-func NewManager() (*Manager) {
+func NewManager(hciSock *os.File) (*Manager) {
+  f, _ := os.Create("log.csv")
   return &Manager{make([]*Device, 0), 0, make(map[int][]int),
-    make(chan ManagerRequest)}
+    make(chan ManagerRequest), hciSock, f}
 }
 
 func (this *Manager) ConnectTo(addr string) error {
@@ -33,24 +38,51 @@ func (this *Manager) ConnectTo(addr string) error {
     return err
   }
 
-  this.AddDeviceForConn(addr, f)
+  ci := GetConnInfo(f)
+
+  this.AddDeviceForConn(addr, f, ci)
 
   return nil
 }
 
-func (this *Manager) AddDeviceForConn(addr string, f io.ReadWriteCloser) {
-  device := NewDevice(addr, this.requestChan, f)
+func (this *Manager) ConnUpdate(device *Device, interval uint16) int {
+  if device.connInfo != nil {
+    return HCIConnUpdate(this.hciSock, device.connInfo.HCIHandle, interval, interval, 0, 0x0C80)
+  } else {
+    return 0
+  }
+}
+
+func (this *Manager) AddDeviceForConn(addr string, f io.ReadWriteCloser, ci *ConnInfo) (*Device) {
+  device := NewDevice(addr, this.requestChan, f, ci)
   this.Devices = append(this.Devices, device)
+  return device
+}
+
+func (this *Manager) StartNoDiscover(idx int) error {
+  if idx >= len(this.Devices) || idx < 0 {
+    return errors.New("No such device")
+  }
+
+  device := this.Devices[idx]
+  return this.StartDeviceNoDiscover(device)
+}
+
+func (this *Manager) StartDeviceNoDiscover(device *Device) error {
+  device.Start()
+  return nil
 }
 
 func (this *Manager) Start(idx int) error {
   if idx >= len(this.Devices) || idx < 0 {
     return errors.New("No such device")
   }
-
   device := this.Devices[idx]
+  return this.StartDevice(device)
+}
+
+func (this *Manager) StartDevice(device *Device) error {
   device.Start()
-  device.StartClient()
 
   handles, err := DiscoverHandles(device)
   if err != nil {
@@ -62,11 +94,11 @@ func (this *Manager) Start(idx int) error {
   this.globalHandleOffset += len(handles)
 
   for _, handle := range handles {
-    h := &Handle{*handle, nil}
+    h := &Handle{*handle, time.Now(), nil, nil}
     device.handles[handle.handle] = h
   }
 
-  groupVals, err := DiscoverServices(device)
+  /*groupVals, err := DiscoverServices(device)
   if err != nil {
     device.fd.Close()
     return err
@@ -85,7 +117,7 @@ func (this *Manager) Start(idx int) error {
 
   for _,v := range handleVals {
     device.handles[v.handle].cachedValue = v.value
-  }
+  }*/
 
   return nil
 }

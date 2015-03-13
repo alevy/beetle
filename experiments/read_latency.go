@@ -34,42 +34,30 @@ func main() {
     os.Exit(1)
   }
 
-  err = ble.HCIConnUpdate(hci, ci.HCIHandle, 40, 56, 0, 42)
-  if err != nil {
-    fmt.Printf("%s\n", err)
-    os.Exit(1)
-  }
-
-  buf := make([]byte, 1024)
-  minDuration := time.Hour
-  var maxDuration time.Duration = 0
-  var totalDuration time.Duration = 0
-  req := []byte{ 0x0A, 0x06, 0x00 }
-
-  for i := 0; i < 100; i++ {
-    start := time.Now()
-    f.Write(req)
-    n, err := f.Read(buf)
-    duration := time.Since(start)
-
-    totalDuration += duration
-    if minDuration > duration {
-      minDuration = duration
-    }
-    if maxDuration < duration {
-      maxDuration = duration
-    }
-    if err != nil {
-      fmt.Printf("%s\n", err)
+  var interval uint16
+  for interval = 6; interval < 0x0C80; interval *= 2 {
+    errc := ble.HCIConnUpdate(hci, ci.HCIHandle, interval, interval, 0, 0x0C80)
+    if errc != 0 {
+      fmt.Printf("Failed to update %d\n", err)
       os.Exit(1)
     }
-    resp := buf[0:n]
-    fmt.Printf("%d %v\n", duration / time.Millisecond, resp)
-    time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
-  }
 
-  avgDuration := totalDuration / 100
-  fmt.Printf("min: %d, max: %d, avg: %d\n", minDuration / time.Millisecond,
-    maxDuration / time.Millisecond, avgDuration / time.Millisecond)
+    buf := make([]byte, 1024)
+    req := []byte{ 0x0A, 0x06, 0x00 }
+
+    for i := 0; i < 30; i++ {
+      start := time.Now()
+      f.Write(req)
+      _, err := f.Read(buf)
+      duration := time.Since(start)
+
+      if err != nil {
+        fmt.Printf("%s\n", err)
+        os.Exit(1)
+      }
+      fmt.Printf("%d,%d\n", interval, duration / time.Millisecond)
+      time.Sleep(time.Duration(rand.Intn(int(float64(time.Duration(interval) * time.Millisecond) * 1.25))))
+    }
+  }
 }
 

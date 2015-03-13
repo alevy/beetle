@@ -490,7 +490,14 @@ func DiscoverHandles(f *Device) ([]*HandleInfo, error) {
     buf[3] = byte(endHandle & 0xff)
     buf[4] = byte(endHandle >> 8)
 
-    resp, err := f.Transaction(buf)
+    r := make(chan Response, 1)
+    f.Transaction(buf, func(resp []byte, err error) {
+      r<-Response{resp, err}
+    })
+    respS := <-r
+    err := respS.err
+    resp := respS.value
+
     if err != nil {
       return nil, err
     }
@@ -534,7 +541,14 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
 
-    resp, err := f.Transaction(buf)
+    r := make(chan Response, 1)
+    f.Transaction(buf, func(resp []byte, err error) {
+      r<-Response{resp, err}
+    })
+    respS := <-r
+    err := respS.err
+    resp := respS.value
+
     if err != nil {
       return nil, err
     }
@@ -578,7 +592,13 @@ func DiscoverCharacteristics(f *Device) ([]*HandleValue, error) {
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
 
-    resp, err := f.Transaction(buf)
+    r := make(chan Response, 1)
+    f.Transaction(buf, func(resp []byte, err error) {
+      r<-Response{resp, err}
+    })
+    respS := <-r
+    err := respS.err
+    resp := respS.value
     if err != nil {
       return nil, err
     }
