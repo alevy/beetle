@@ -98,7 +98,7 @@ func (this *Manager) StartDevice(device *Device) error {
     device.handles[handle.handle] = h
   }
 
-  /*groupVals, err := DiscoverServices(device)
+  groupVals, err := DiscoverServices(device)
   if err != nil {
     device.fd.Close()
     return err
@@ -117,7 +117,7 @@ func (this *Manager) StartDevice(device *Device) error {
 
   for _,v := range handleVals {
     device.handles[v.handle].cachedValue = v.value
-  }*/
+  }
 
   return nil
 }
