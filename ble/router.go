@@ -133,6 +133,14 @@ func (this *Manager) RouteReadByType(req ManagerRequest) {
             h += offset
             respBuf[i] = byte(h & 0xff)
             respBuf[i + 1] = byte(h >> 8)
+
+            if attType == GATT_CHARACTERISTIC_UUID {
+              j := i + 3
+              value_handle := uint16(respBuf[j]) + uint16(respBuf[j + 1]) << 8
+              value_handle += offset
+              respBuf[j] = byte(value_handle & 0xff)
+              respBuf[j + 1] = byte(value_handle >> 8)
+            }
           }
           req.device.Respond(respBuf)
         }
