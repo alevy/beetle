@@ -33,7 +33,7 @@ func (this *Manager) ConnectTo(addr string) error {
     return err
   }
 
-  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM), addr)
+  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_PUBLIC), addr)
   if err != nil {
     return err
   }
