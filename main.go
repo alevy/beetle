@@ -15,7 +15,7 @@ func listenUnix(manager *ble.Manager) {
   /*os.Remove("/tmp/babel.sock")
   addr, _ := net.ResolveUnixAddr("unixpacket", "/tmp/babel.sock")
   listener, err := net.ListenUnix("unixpacket", addr)*/
-  addr, _ := net.ResolveTCPAddr("tcp", ":5555")
+  addr, _ := net.ResolveTCPAddr("tcp", ":5556")
   listener, err := net.ListenTCP("tcp", addr)
   if err != nil {
     fmt.Printf("ERROR: %s\n", err)
@@ -94,6 +94,18 @@ func main() {
       }
       fmt.Printf("Connecting to %s... ", parts[1])
       err = manager.ConnectTo(parts[1])
+      if err != nil {
+        fmt.Printf("ERROR: %s\n", err)
+      } else {
+        fmt.Printf("done\n")
+      }
+    case "connectTCP":
+      if len(parts) < 2 {
+        fmt.Printf("Usage: connect address:port\n")
+        continue
+      }
+      fmt.Printf("Connecting to %s... ", parts[1])
+      err = manager.ConnectTCP(parts[1])
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {

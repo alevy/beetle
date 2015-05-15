@@ -4,6 +4,7 @@ import (
   "errors"
   "time"
   "io"
+  "net"
   "os"
 )
 
@@ -18,13 +19,11 @@ type Manager struct {
   associations map[int][]int
   requestChan chan ManagerRequest
   hciSock     *os.File
-  log         *os.File
 }
 
 func NewManager(hciSock *os.File) (*Manager) {
-  f, _ := os.Create("log.csv")
   return &Manager{make([]*Device, 0), 0, make(map[int][]int),
-    make(chan ManagerRequest), hciSock, f}
+    make(chan ManagerRequest), hciSock}
 }
 
 func (this *Manager) ConnectTo(addr string) error {
@@ -33,7 +32,7 @@ func (this *Manager) ConnectTo(addr string) error {
     return err
   }
 
-  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_PUBLIC), addr)
+  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM), addr)
   if err != nil {
     return err
   }
@@ -44,6 +43,16 @@ func (this *Manager) ConnectTo(addr string) error {
 
   return nil
 }
+
+func (this *Manager) ConnectTCP(addr string) (error) {
+  conn, err := net.Dial("tcp", addr)
+  if err != nil {
+    return err
+  }
+  this.AddDeviceForConn("tcp://" + addr, conn, nil)
+  return nil
+}
+
 
 func (this *Manager) ConnUpdate(device *Device, interval uint16) int {
   if device.connInfo != nil {
@@ -84,40 +93,92 @@ func (this *Manager) Start(idx int) error {
 func (this *Manager) StartDevice(device *Device) error {
   device.Start()
 
-  handles, err := DiscoverHandles(device)
+  lastHandle := uint16(0)
+
+  services, err := DiscoverServices(device)
   if err != nil {
     device.fd.Close()
     return err
+  }
+
+  for _,service := range services {
+    handle := new(Handle)
+    handle.handle = service.handle
+    handle.uuid = GATT_PRIMARY_SERVICE_UUID
+    handle.cachedTime = time.Now()
+    handle.cachedInfinite = true
+    handle.cachedValue = service.value
+    handle.endGroup = service.endGroup
+    device.handles[service.handle] = handle
+    chars, err := DiscoverCharacteristics(device, service.handle,
+                       service.endGroup)
+    if err != nil {
+      device.fd.Close()
+      return err
+    }
+    for _,char := range chars {
+      handle := new(Handle)
+      handle.handle = char.handle
+      handle.uuid = GATT_CHARACTERISTIC_UUID
+      handle.cachedTime = time.Now()
+      handle.cachedInfinite = true
+      handle.cachedValue = char.value
+      handle.serviceHandle = service.handle
+      handle.charHandle = uint16(char.value[1]) + (uint16(char.value[2]) << 8)
+      device.handles[char.handle] = handle
+    }
+
+    for i := 0; i < len(chars) - 1; i++ {
+      char := chars[i]
+      startGroup := char.handle + 1
+      endGroup := chars[i + 1].handle
+      device.handles[char.handle].endGroup = endGroup
+      handleInfos, err := DiscoverHandles(device, startGroup, endGroup)
+      if err != nil {
+        device.fd.Close()
+        return err
+      }
+      for _, handleInfo := range(handleInfos) {
+        handle := new(Handle)
+        handle.handle = handleInfo.handle
+        handle.uuid = handleInfo.uuid
+        handle.cachedInfinite = false
+        handle.serviceHandle = service.handle
+        handle.charHandle = char.handle
+        device.handles[handleInfo.handle] = handle
+      }
+    }
+
+    if len(chars) == 0 {
+      continue
+    }
+
+    char := chars[len(chars) - 1]
+    startGroup := char.handle + 1
+    endGroup := service.endGroup
+    device.handles[char.handle].endGroup = endGroup
+    handleInfos, err := DiscoverHandles(device, startGroup, endGroup)
+    if err != nil {
+      device.fd.Close()
+      return err
+    }
+    for _, handleInfo := range(handleInfos) {
+      handle := new(Handle)
+      handle.handle = handleInfo.handle
+      handle.uuid = handleInfo.uuid
+      handle.cachedInfinite = false
+      handle.serviceHandle = service.handle
+      handle.charHandle = char.handle
+      device.handles[handleInfo.handle] = handle
+      lastHandle = handleInfo.handle
+    }
+
   }
 
   device.handleOffset = this.globalHandleOffset
-  this.globalHandleOffset += len(handles)
+  device.highestHandle = int(lastHandle) + device.handleOffset
+  this.globalHandleOffset += int(lastHandle)
 
-  for _, handle := range handles {
-    h := &Handle{*handle, time.Now(), nil, nil}
-    device.handles[handle.handle] = h
-  }
-
-  groupVals, err := DiscoverServices(device)
-  if err != nil {
-    device.fd.Close()
-    return err
-  }
-
-  for _,v := range groupVals {
-    device.handles[v.handle].cachedValue = v.value
-    device.handles[v.handle].endGroup = v.endGroup
-  }
-
-  handleVals, err := DiscoverCharacteristics(device)
-  if err != nil {
-    device.fd.Close()
-    return err
-  }
-
-  for _,v := range handleVals {
-    device.handles[v.handle].cachedValue = v.value
-  }
 
   return nil
 }

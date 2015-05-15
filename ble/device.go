@@ -19,9 +19,15 @@ type WriteReq struct {
 }
 
 type Handle struct {
-  HandleInfo
+  handle uint16
+  uuid UUID
+  endGroup uint16
+  cachedValue []byte
   cachedTime time.Time
   cachedMap  map[*Device]bool
+  cachedInfinite bool
+  serviceHandle uint16
+  charHandle uint16
   subscribers []*Device
 }
 
@@ -35,6 +41,7 @@ type Device struct {
   fd            io.ReadWriteCloser
   handles       map[uint16]*Handle
   handleOffset  int
+  highestHandle int
 
   readPkt        chan []byte
   clientRespChan chan Response
@@ -42,7 +49,7 @@ type Device struct {
   writeChan      chan []byte
   transactionQ   chan Transaction
 
-  connInfo        *ConnInfo
+  connInfo       *ConnInfo
   first          bool
 }
 
@@ -52,16 +59,17 @@ func (device *Device) String() string {
 
 func (device *Device) StrHandles() string {
   result := ""
-  for _, handle := range device.handles {
-    result += fmt.Sprintf("0x%02X:\t%v\t%v\tsubscribers: %d\n",
+  for i, handle := range device.handles {
+    result += fmt.Sprintf("0x%02X\t0x%02X:\t%v\t%v\t0x%02X\t0x%02X\tsubscribers: %d\n",
+      i,
       handle.handle, handle.uuid, handle.cachedValue,
-      len(handle.subscribers))
+      handle.charHandle, handle.serviceHandle, len(handle.subscribers))
   }
   return result
 }
 
 func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser, ci *ConnInfo) *Device {
-  return &Device{addr, fd, make(map[uint16]*Handle), -1,
+  return &Device{addr, fd, make(map[uint16]*Handle), -1, -1,
     make(chan []byte, 1), make(chan Response, 1), serverReqChan,
     make(chan []byte), make(chan Transaction, 100), ci, true}
 }

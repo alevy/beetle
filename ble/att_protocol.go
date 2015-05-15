@@ -46,6 +46,8 @@ type UUID [16]uint8
 
 var BLUETOOTH_BASE_UUID [12]byte =
   [12]byte{0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
+var GATT_PRIMARY_SERVICE_UUID UUID =
+  [16]byte{0, 0, 0x0, 0x28, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
 var GATT_CHARACTERISTIC_UUID UUID =
   [16]byte{0, 0, 0x3, 0x28, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
 
@@ -478,55 +480,6 @@ func (this *ReadByTypeResponse) DataList() []*HandleValue {
   return vals
 }
 
-func DiscoverHandles(f *Device) ([]*HandleInfo, error) {
-  buf := make([]byte, 5)
-  buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
-
-  var startHandle uint16 = 1
-  var endHandle uint16   = 0xffff
-
-  handles := make([]*HandleInfo, 0)
-  for {
-    // populate packet buffer
-    buf[1] = byte(startHandle & 0xff)
-    buf[2] = byte(startHandle >> 8)
-    buf[3] = byte(endHandle & 0xff)
-    buf[4] = byte(endHandle >> 8)
-
-    r := make(chan Response, 1)
-    f.Transaction(buf, func(resp []byte, err error) {
-      r<-Response{resp, err}
-    })
-    respS := <-r
-    err := respS.err
-    resp := respS.value
-
-    if err != nil {
-      return nil, err
-    }
-
-    if resp[0] == ATT_OPCODE_FIND_INFO_RESPONSE {
-      fi, err := ParseFindInfoResponse(resp)
-      if err != nil {
-        return nil, err
-      }
-      handles = append(handles, fi.InfoData()...)
-
-      startHandle = handles[len(handles) - 1].handle + 1
-      continue
-    }
-
-    if resp[0] == ATT_OPCODE_ERROR  &&
-       resp[1] == ATT_OPCODE_FIND_INFO_REQUEST && resp[4] == 0x0A {
-        break
-    } else {
-      return nil, errors.New("Unexpected packet: " + string(resp))
-    }
-  }
-
-  return handles, nil
-}
-
 func DiscoverServices(f *Device) ([]*GroupValue, error) {
   buf := make([]byte, 7)
   buf[0] = ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST
@@ -578,12 +531,10 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
   return vals, nil
 }
 
-func DiscoverCharacteristics(f *Device) ([]*HandleValue, error) {
+func DiscoverCharacteristics(f *Device, startHandle uint16,
+        endHandle uint16) ([]*HandleValue, error) {
   buf := make([]byte, 7)
   buf[0] = ATT_OPCODE_READ_BY_TYPE_REQUEST
-
-  var startHandle uint16 = 1
-  var endHandle uint16   = 0xffff
 
   buf[3] = byte(endHandle & 0xff)
   buf[4] = byte(endHandle >> 8)
@@ -627,3 +578,55 @@ func DiscoverCharacteristics(f *Device) ([]*HandleValue, error) {
   }
   return vals, nil
 }
+
+func DiscoverHandles(f *Device, startHandle uint16,
+        endHandle uint16) ([]*HandleInfo, error) {
+  buf := make([]byte, 5)
+  buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
+
+  handles := make([]*HandleInfo, 0)
+  for {
+    // populate packet buffer
+    buf[1] = byte(startHandle & 0xff)
+    buf[2] = byte(startHandle >> 8)
+    buf[3] = byte(endHandle & 0xff)
+    buf[4] = byte(endHandle >> 8)
+
+    r := make(chan Response, 1)
+    f.Transaction(buf, func(resp []byte, err error) {
+      r<-Response{resp, err}
+    })
+    respS := <-r
+    err := respS.err
+    resp := respS.value
+
+    if err != nil {
+      return nil, err
+    }
+
+    if resp[0] == ATT_OPCODE_FIND_INFO_RESPONSE {
+      fi, err := ParseFindInfoResponse(resp)
+      if err != nil {
+        return nil, err
+      }
+      handles = append(handles, fi.InfoData()...)
+
+      startHandle = handles[len(handles) - 1].handle + 1
+      if startHandle >= endHandle {
+        break
+      } else {
+        continue
+      }
+    }
+
+    if resp[0] == ATT_OPCODE_ERROR  &&
+       resp[1] == ATT_OPCODE_FIND_INFO_REQUEST && resp[4] == 0x0A {
+        break
+    } else {
+      return nil, errors.New("Unexpected packet: " + string(resp))
+    }
+  }
+
+  return handles, nil
+}
+
