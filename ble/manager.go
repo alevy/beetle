@@ -26,13 +26,13 @@ func NewManager(hciSock *os.File) (*Manager) {
     make(chan ManagerRequest), hciSock}
 }
 
-func (this *Manager) ConnectTo(addr string) error {
+func (this *Manager) ConnectTo(addrType uint8, addr string) error {
   remoteAddr, err := Str2Ba(addr)
   if err != nil {
     return err
   }
 
-  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, BDADDR_LE_RANDOM), addr)
+  f, err := NewBLE(NewL2Sockaddr(4, remoteAddr, addrType), addr)
   if err != nil {
     return err
   }

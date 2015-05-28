@@ -88,12 +88,21 @@ func main() {
         }
       }
     case "connect":
-      if len(parts) < 2 {
-        fmt.Printf("Usage: connect [device_address]\n")
+      if len(parts) < 3 {
+        fmt.Printf("Usage: connect public|random [device_address]\n")
         continue
       }
-      fmt.Printf("Connecting to %s... ", parts[1])
-      err = manager.ConnectTo(parts[1])
+      switch parts[1] {
+        case "public":
+          fmt.Printf("Connecting to %s... ", parts[2])
+          err = manager.ConnectTo(ble.BDADDR_LE_PUBLIC, parts[2])
+        case "random":
+          fmt.Printf("Connecting to %s... ", parts[2])
+          err = manager.ConnectTo(ble.BDADDR_LE_RANDOM, parts[2])
+        default:
+          fmt.Printf("Usage: connect public|private [device_address]\n")
+          continue
+      }
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
