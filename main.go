@@ -156,7 +156,7 @@ func main() {
       }
     case "startnd":
       if len(parts) < 2 {
-        fmt.Printf("Usage: start [device_address]\n")
+        fmt.Printf("Usage: startnd [device_address]\n")
         continue
       }
       fmt.Printf("Starting %s... ", parts[1])
