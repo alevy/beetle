@@ -15,19 +15,18 @@ type ManagerRequest struct {
 }
 
 type Manager struct {
-  Devices []*Device
+  Devices map[string]*Device
   globalHandleOffset int
-  associations map[int][]int
   requestChan chan ManagerRequest
   hciSock     *os.File
 }
 
 func NewManager(hciSock *os.File) (*Manager) {
-  return &Manager{make([]*Device, 0), 0, make(map[int][]int),
+  return &Manager{make(map[string]*Device, 0), 0,
     make(chan ManagerRequest), hciSock}
 }
 
-func (this *Manager) ConnectTo(addrType uint8, addr string) error {
+func (this *Manager) ConnectTo(addrType uint8, addr string, nick string) error {
   remoteAddr, err := Str2Ba(addr)
   if err != nil {
     return err
@@ -40,17 +39,17 @@ func (this *Manager) ConnectTo(addrType uint8, addr string) error {
 
   ci := GetConnInfo(f)
 
-  this.AddDeviceForConn(addr, f, ci)
+  this.AddDeviceForConn(addr, nick, f, ci)
 
   return nil
 }
 
-func (this *Manager) ConnectTCP(addr string) (error) {
+func (this *Manager) ConnectTCP(addr string, nick string) (error) {
   conn, err := net.Dial("tcp", addr)
   if err != nil {
     return err
   }
-  this.AddDeviceForConn("tcp://" + addr, conn, nil)
+  this.AddDeviceForConn("tcp://" + addr, nick, conn, nil)
   return nil
 }
 
@@ -63,19 +62,20 @@ func (this *Manager) ConnUpdate(device *Device, interval uint16) int {
   }
 }
 
-func (this *Manager) AddDeviceForConn(addr string, f io.ReadWriteCloser, ci *ConnInfo) (*Device) {
+func (this *Manager) AddDeviceForConn(addr string, nick string,
+                            f io.ReadWriteCloser, ci *ConnInfo) (*Device) {
   device := NewDevice(addr, this.requestChan, f, ci)
-  this.Devices = append(this.Devices, device)
+  this.Devices[nick] = device
   return device
 }
 
-func (this *Manager) StartNoDiscover(idx int) error {
-  if idx >= len(this.Devices) || idx < 0 {
+func (this *Manager) StartNoDiscover(nick string) error {
+  device, ok := this.Devices[nick]
+  if ok {
+    return this.StartDeviceNoDiscover(device)
+  } else {
     return errors.New("No such device")
   }
-
-  device := this.Devices[idx]
-  return this.StartDeviceNoDiscover(device)
 }
 
 func (this *Manager) StartDeviceNoDiscover(device *Device) error {
@@ -83,12 +83,13 @@ func (this *Manager) StartDeviceNoDiscover(device *Device) error {
   return nil
 }
 
-func (this *Manager) Start(idx int) error {
-  if idx >= len(this.Devices) || idx < 0 {
+func (this *Manager) Start(nick string) error {
+  device, ok := this.Devices[nick]
+  if ok {
+    return this.StartDevice(device)
+  } else {
     return errors.New("No such device")
   }
-  device := this.Devices[idx]
-  return this.StartDevice(device)
 }
 
 func (this *Manager) StartDevice(device *Device) error {
@@ -188,31 +189,18 @@ func (this *Manager) StartDevice(device *Device) error {
   return nil
 }
 
-func (this *Manager) DisconnectFrom(idx int) error {
-  if idx >= len(this.Devices) || idx < 0 {
+func (this *Manager) DisconnectFrom(nick string) error {
+  device, ok := this.Devices[nick]
+  if !ok {
     return errors.New("No such device")
   }
-
-  device := this.Devices[idx]
 
   err := device.fd.Close()
   if err != nil {
     return err
   }
 
-  this.Devices = append(this.Devices[0:idx], this.Devices[idx + 1:]...)
-  delete(this.associations, idx)
-  for cl,lst := range this.associations {
-    for i,v := range lst {
-      if v == idx {
-        this.associations[cl] = append(lst[0:i], lst[i + 1:]...)
-        break
-      }
-    }
-    if len(this.associations) == 0 {
-      delete(this.associations, cl)
-    }
-  }
+  delete(this.Devices, nick)
 
   // TODO(alevy): This is really really inefficient. Structuring subscriptions
   // better would make this easier. For our purposes at the moment, 10s of
@@ -232,20 +220,6 @@ func (this *Manager) DisconnectFrom(idx int) error {
         }
       }
     }
-  }
-
-  return nil
-}
-
-func (this *Manager) ServeTo(serverIdx, clientIdx int) error {
-  if clientIdx >= len(this.Devices) || serverIdx >= len(this.Devices) {
-    return errors.New("No such device")
-  }
-
-  if lst,ok := this.associations[clientIdx]; ok {
-    this.associations[clientIdx] = append(lst, serverIdx)
-  } else {
-    this.associations[clientIdx] = []int {serverIdx}
   }
 
   return nil

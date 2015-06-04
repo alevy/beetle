@@ -5,38 +5,10 @@ import (
   "bufio"
   "fmt"
   "io"
-  "net"
   "os"
   "strconv"
   "strings"
 )
-
-func listenUnix(manager *ble.Manager) {
-  /*os.Remove("/tmp/babel.sock")
-  addr, _ := net.ResolveUnixAddr("unixpacket", "/tmp/babel.sock")
-  listener, err := net.ListenUnix("unixpacket", addr)*/
-  addr, _ := net.ResolveTCPAddr("tcp", ":5556")
-  listener, err := net.ListenTCP("tcp", addr)
-  if err != nil {
-    fmt.Printf("ERROR: %s\n", err)
-    os.Exit(1)
-  }
-  if err != nil {
-    fmt.Printf("ERROR: %s\n", err)
-    os.Exit(1)
-  }
-
-  for {
-    conn, err := listener.Accept()
-    if err != nil {
-      fmt.Printf("ERROR: %s\n", err)
-      os.Exit(1)
-    }
-    device := manager.AddDeviceForConn(conn.RemoteAddr().String(), conn, nil)
-    manager.StartDevice(device)
-    fmt.Printf("New app connected...\n")
-  }
-}
 
 func main() {
 
@@ -49,7 +21,6 @@ func main() {
   manager := ble.NewManager(hciSock)
 
   go manager.RunRouter()
-  go listenUnix(manager)
 
   for {
     fmt.Printf("> ")
@@ -89,16 +60,22 @@ func main() {
       }
     case "connect":
       if len(parts) < 3 {
-        fmt.Printf("Usage: connect public|random [device_address]\n")
+        fmt.Printf("Usage: connect public|random DEVICE_ADDRESS [NICK]\n")
         continue
       }
-      switch parts[1] {
+      addrType := parts[1]
+      address := parts[2]
+      nick := address
+      if len(parts) >= 4 {
+        nick = parts[3]
+      }
+      switch addrType {
         case "public":
-          fmt.Printf("Connecting to %s... ", parts[2])
-          err = manager.ConnectTo(ble.BDADDR_LE_PUBLIC, parts[2])
+          fmt.Printf("Connecting to %s... ", address)
+          err = manager.ConnectTo(ble.BDADDR_LE_PUBLIC, address, nick)
         case "random":
           fmt.Printf("Connecting to %s... ", parts[2])
-          err = manager.ConnectTo(ble.BDADDR_LE_RANDOM, parts[2])
+          err = manager.ConnectTo(ble.BDADDR_LE_RANDOM, address, nick)
         default:
           fmt.Printf("Usage: connect public|private [device_address]\n")
           continue
@@ -110,11 +87,16 @@ func main() {
       }
     case "connectTCP":
       if len(parts) < 2 {
-        fmt.Printf("Usage: connect address:port\n")
+        fmt.Printf("Usage: connect IP:PORT [NICK]\n")
         continue
       }
-      fmt.Printf("Connecting to %s... ", parts[1])
-      err = manager.ConnectTCP(parts[1])
+      address := parts[1]
+      nick := "tcp://" + address
+      if len(parts) >= 3 {
+        nick = parts[2]
+      }
+      fmt.Printf("Connecting to %s... ", address)
+      err = manager.ConnectTCP(address, nick)
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -126,12 +108,7 @@ func main() {
         continue
       }
       fmt.Printf("Disconnecting from %s... ", parts[1])
-      idx, err := strconv.ParseInt(parts[1], 10, 0)
-      if err != nil {
-        fmt.Printf("ERROR: %s\n", err)
-        continue
-      }
-      err = manager.DisconnectFrom(int(idx))
+      err = manager.DisconnectFrom(parts[1])
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -143,12 +120,11 @@ func main() {
         continue
       }
       fmt.Printf("Starting %s... ", parts[1])
-      idx, err := strconv.ParseInt(parts[1], 10, 0)
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      err = manager.Start(int(idx))
+      err = manager.Start(parts[1])
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -160,12 +136,11 @@ func main() {
         continue
       }
       fmt.Printf("Starting %s... ", parts[1])
-      idx, err := strconv.ParseInt(parts[1], 10, 0)
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
         continue
       }
-      err = manager.StartNoDiscover(int(idx))
+      err = manager.StartNoDiscover(parts[1])
       if err != nil {
         fmt.Printf("ERROR: %s\n", err)
       } else {
@@ -175,46 +150,20 @@ func main() {
       if len(manager.Devices) == 0 {
         fmt.Printf("No connected devices\n")
       }
-      for idx,device := range(manager.Devices) {
-        fmt.Printf("%02d:\t%s\n", idx, device)
+      for nick,device := range(manager.Devices) {
+        fmt.Printf("%02d:\t%s\n", nick, device)
       }
     case "handles":
       if len(parts) < 2 {
-        fmt.Printf("Usage: handles [device_idx]\n")
+        fmt.Printf("Usage: handles [device_nick]\n")
         continue
       }
-      idx, err := strconv.ParseInt(parts[1], 10, 0)
-      if err != nil {
-        fmt.Printf("ERROR: %s\n", err)
-        continue
-      }
-      if int(idx) >= len(manager.Devices) || int(idx) < 0 {
+      device, ok := manager.Devices[parts[1]]
+      if !ok {
         fmt.Printf("Unknown device %s\n", parts[1])
         continue
       }
-      device := manager.Devices[idx]
       fmt.Printf("%s", device.StrHandles())
-    case "serve":
-      if len(parts) < 3 {
-        fmt.Printf("Usage: serve [server_idx] [client_idx]\n")
-        continue
-      }
-      serverIdx, err := strconv.ParseInt(parts[1], 10, 0)
-      if err != nil {
-        fmt.Printf("ERROR: %s\n", err)
-        continue
-      }
-      clientIdx, err := strconv.ParseInt(parts[2], 10, 0)
-      if err != nil {
-        fmt.Printf("ERROR: %s\n", err)
-        continue
-      }
-
-      err = manager.ServeTo(int(serverIdx), int(clientIdx))
-      if err != nil {
-        fmt.Printf("ERROR: %s\n", err)
-        continue
-      }
     case "debug":
       if (len(parts) < 2) {
         fmt.Printf("Usage: debug on|off\n")
