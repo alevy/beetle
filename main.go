@@ -38,8 +38,6 @@ func main() {
     parts := strings.Split(line, " ")
 
     switch parts[0] {
-    case "panic":
-      panic("AAA")
     case "set-interval":
       if len(parts) < 2 {
         fmt.Printf("Usage: set-interval [interval]\n")

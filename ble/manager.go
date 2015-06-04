@@ -72,15 +72,11 @@ func (this *Manager) AddDeviceForConn(addr string, nick string,
 func (this *Manager) StartNoDiscover(nick string) error {
   device, ok := this.Devices[nick]
   if ok {
-    return this.StartDeviceNoDiscover(device)
+    device.Start()
+    return nil
   } else {
     return errors.New("No such device")
   }
-}
-
-func (this *Manager) StartDeviceNoDiscover(device *Device) error {
-  device.Start()
-  return nil
 }
 
 func (this *Manager) Start(nick string) error {
