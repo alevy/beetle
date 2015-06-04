@@ -28,7 +28,7 @@ type Handle struct {
   cachedInfinite bool
   serviceHandle uint16
   charHandle uint16
-  subscribers []*Device
+  subscribers map[*Device]bool
 }
 
 type Transaction struct {
@@ -47,7 +47,6 @@ type Device struct {
   clientRespChan chan Response
   serverReqChan  chan ManagerRequest
   writeChan      chan []byte
-  transactionQ   chan Transaction
 
   connInfo       *ConnInfo
   first          bool
@@ -70,18 +69,22 @@ func (device *Device) StrHandles() string {
 
 func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser, ci *ConnInfo) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1, -1,
-    make(chan []byte, 1), make(chan Response, 1), serverReqChan,
-    make(chan []byte), make(chan Transaction, 100), ci, true}
+    make(chan []byte, 2), make(chan Response, 2), serverReqChan,
+    make(chan []byte, 2), ci, true}
 }
 
 func (this *Device) Start() {
   go func() {
     for {
       buf := make([]byte, 64)
+      if Debug {
+        fmt.Printf("Reading from %s\n", this.addr)
+      }
       n, err := this.fd.Read(buf)
+      if Debug {
+        fmt.Printf("Read from %s: %v\n", this.addr, buf[0:n])
+      }
       if err != nil {
-        close(this.readPkt)
-        close(this.clientRespChan)
         return
       }
       this.readPkt <- buf[0:n]
@@ -95,6 +98,9 @@ func (this *Device) Start() {
         fmt.Printf("%s <- %v\n", this.addr, req)
       }
       _, err := this.fd.Write(req)
+      if Debug {
+        fmt.Printf("Wrote to %s\n", this.addr)
+      }
       if err != nil {
         return
       }

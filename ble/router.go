@@ -189,7 +189,7 @@ func (this *Manager) RunRouter() {
       pkt[1] = byte(remoteHandle & 0xff)
       pkt[2] = byte(remoteHandle >> 8)
 
-      for _, dev := range proxyHandle.subscribers {
+      for dev,_ := range proxyHandle.subscribers {
         go dev.WriteCmd(pkt)
       }
     case ATT_OPCODE_READ_REQUEST:
@@ -230,8 +230,16 @@ func (this *Manager) RunRouter() {
          proxyHandle.uuid == GATT_CLIENT_CONFIGURATION_UUID {
         proxyCharHandle := device.handles[proxyHandle.charHandle]
         proxyCharHandle = device.handles[proxyCharHandle.charHandle]
-        if proxyCharHandle.subscribers == nil {
-          proxyCharHandle.subscribers = []*Device{req.device}
+        if pkt[3] == 0 {
+          delete(proxyCharHandle.subscribers, req.device)
+        } else {
+          proxyCharHandle.subscribers[req.device] = true
+        }
+        numSubscribers := len(proxyCharHandle.subscribers)
+        if numSubscribers == 0 && pkt[3] == 0 ||
+           numSubscribers == 1 && pkt[3] == 1 {
+          // TODO(alevy): Need to re-write handle in packet with offset before
+          // sending
           device.Transaction(pkt, func(resp []byte, err error){
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
@@ -241,7 +249,7 @@ func (this *Manager) RunRouter() {
             }
           })
         } else {
-          proxyCharHandle.subscribers = append(proxyCharHandle.subscribers, device)
+          req.device.Respond([]byte{ATT_OPCODE_WRITE_RESPONSE})
         }
       } else if pkt[0] == ATT_OPCODE_READ_REQUEST && proxyHandle.cachedValue != nil &&
           (/*&& time.Since(proxyHandle.cachedTime) <=

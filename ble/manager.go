@@ -6,6 +6,7 @@ import (
   "io"
   "net"
   "os"
+  "fmt"
 )
 
 type ManagerRequest struct {
@@ -103,6 +104,7 @@ func (this *Manager) StartDevice(device *Device) error {
 
   for _,service := range services {
     handle := new(Handle)
+    handle.subscribers = make(map[*Device]bool)
     handle.handle = service.handle
     handle.uuid = GATT_PRIMARY_SERVICE_UUID
     handle.cachedTime = time.Now()
@@ -118,6 +120,7 @@ func (this *Manager) StartDevice(device *Device) error {
     }
     for _,char := range chars {
       handle := new(Handle)
+      handle.subscribers = make(map[*Device]bool)
       handle.handle = char.handle
       handle.uuid = GATT_CHARACTERISTIC_UUID
       handle.cachedTime = time.Now()
@@ -140,6 +143,7 @@ func (this *Manager) StartDevice(device *Device) error {
       }
       for _, handleInfo := range(handleInfos) {
         handle := new(Handle)
+        handle.subscribers = make(map[*Device]bool)
         handle.handle = handleInfo.handle
         handle.uuid = handleInfo.uuid
         handle.cachedInfinite = false
@@ -164,6 +168,7 @@ func (this *Manager) StartDevice(device *Device) error {
     }
     for _, handleInfo := range(handleInfos) {
       handle := new(Handle)
+      handle.subscribers = make(map[*Device]bool)
       handle.handle = handleInfo.handle
       handle.uuid = handleInfo.uuid
       handle.cachedInfinite = false
@@ -208,6 +213,27 @@ func (this *Manager) DisconnectFrom(idx int) error {
       delete(this.associations, cl)
     }
   }
+
+  // TODO(alevy): This is really really inefficient. Structuring subscriptions
+  // better would make this easier. For our purposes at the moment, 10s of
+  // devices with 10s of handles, so the iteration is probably not so bad. At
+  // the limit, this could be 16 thousand iterations for each device, which is
+  // a lot.
+  for _,d := range this.Devices {
+    for _, handle := range d.handles {
+      fmt.Printf("%v\n", handle.subscribers)
+      if _, ok := handle.subscribers[device]; ok {
+        fmt.Printf("Deleting... ")
+        delete(handle.subscribers, device)
+        fmt.Printf("%v\n", handle.subscribers)
+        if len(handle.subscribers) == 0 {
+          //device.Transaction([]byte{ATT_OPCODE_WRITE_REQUEST, 0},
+          //  func(resp []byte, err error){});
+        }
+      }
+    }
+  }
+
   return nil
 }
 

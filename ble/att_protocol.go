@@ -481,21 +481,19 @@ func (this *ReadByTypeResponse) DataList() []*HandleValue {
 }
 
 func DiscoverServices(f *Device) ([]*GroupValue, error) {
-  buf := make([]byte, 7)
-  buf[0] = ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST
-
   var startHandle uint16 = 1
   var endHandle uint16   = 0xffff
 
-  buf[3] = byte(endHandle & 0xff)
-  buf[4] = byte(endHandle >> 8)
-  copy(buf[5:], []byte{0, 0x28}) // Primary Service UUID
-
   vals := make([]*GroupValue, 0, 4)
   for {
+    buf := make([]byte, 7)
     // populate packet buffer
+    buf[0] = ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
+    buf[3] = byte(endHandle & 0xff)
+    buf[4] = byte(endHandle >> 8)
+    copy(buf[5:], []byte{0, 0x28}) // Primary Service UUID
 
     r := make(chan Response, 1)
     f.Transaction(buf, func(resp []byte, err error) {
@@ -533,18 +531,18 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
 
 func DiscoverCharacteristics(f *Device, startHandle uint16,
         endHandle uint16) ([]*HandleValue, error) {
-  buf := make([]byte, 7)
-  buf[0] = ATT_OPCODE_READ_BY_TYPE_REQUEST
-
-  buf[3] = byte(endHandle & 0xff)
-  buf[4] = byte(endHandle >> 8)
-  copy(buf[5:], []byte{3, 0x28}) // Characteristic Decleration
-
   vals := make([]*HandleValue, 0, 4)
   for {
+    buf := make([]byte, 7)
     // populate packet buffer
+    buf[0] = ATT_OPCODE_READ_BY_TYPE_REQUEST
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
+
+
+    buf[3] = byte(endHandle & 0xff)
+    buf[4] = byte(endHandle >> 8)
+    copy(buf[5:], []byte{3, 0x28}) // Characteristic Decleration
 
     r := make(chan Response, 1)
     f.Transaction(buf, func(resp []byte, err error) {
@@ -581,11 +579,11 @@ func DiscoverCharacteristics(f *Device, startHandle uint16,
 
 func DiscoverHandles(f *Device, startHandle uint16,
         endHandle uint16) ([]*HandleInfo, error) {
-  buf := make([]byte, 5)
-  buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
-
   handles := make([]*HandleInfo, 0)
   for {
+    buf := make([]byte, 5)
+    buf[0] = ATT_OPCODE_FIND_INFO_REQUEST
+
     // populate packet buffer
     buf[1] = byte(startHandle & 0xff)
     buf[2] = byte(startHandle >> 8)
