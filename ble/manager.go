@@ -204,8 +204,25 @@ func (this *Manager) DisconnectFrom(nick string) error {
       if _, ok := handle.subscribers[device]; ok {
         delete(handle.subscribers, device)
         if len(handle.subscribers) == 0 {
-          //device.Transaction([]byte{ATT_OPCODE_WRITE_REQUEST, 0},
-          //  func(resp []byte, err error){});
+          // This was the last subscriber, so unsubscribe.
+
+          // Iterate through characteristic to find a client configuration
+          char := d.handles[handle.charHandle]
+          for i := handle.charHandle; i <= char.endGroup; i++ {
+            handle, ok = d.handles[i]
+            if !ok {
+              break
+            }
+            if handle.uuid == GATT_CLIENT_CONFIGURATION_UUID {
+              // adjust handle offset
+              h := i - uint16(d.handleOffset)
+              // write a zero
+              d.Transaction(
+                []byte{ATT_OPCODE_WRITE_REQUEST, byte(h & 0xff), byte(h >> 8), 0, 0},
+                func(resp []byte, err error){});
+              break
+            }
+          }
         }
       }
     }
