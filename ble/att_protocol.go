@@ -495,10 +495,8 @@ func DiscoverServices(f *Device) ([]*GroupValue, error) {
     buf[4] = byte(endHandle >> 8)
     copy(buf[5:], []byte{0, 0x28}) // Primary Service UUID
 
-    r := make(chan Response, 1)
-    f.Transaction(buf, func(resp []byte, err error) {
-      r<-Response{resp, err}
-    })
+    r := make(chan Response)
+    f.transactChan<-Transaction{buf, r}
     respS := <-r
     err := respS.err
     resp := respS.value
@@ -544,13 +542,12 @@ func DiscoverCharacteristics(f *Device, startHandle uint16,
     buf[4] = byte(endHandle >> 8)
     copy(buf[5:], []byte{3, 0x28}) // Characteristic Decleration
 
-    r := make(chan Response, 1)
-    f.Transaction(buf, func(resp []byte, err error) {
-      r<-Response{resp, err}
-    })
+    r := make(chan Response)
+    f.transactChan<-Transaction{buf, r}
     respS := <-r
     err := respS.err
     resp := respS.value
+
     if err != nil {
       return nil, err
     }
@@ -590,10 +587,8 @@ func DiscoverHandles(f *Device, startHandle uint16,
     buf[3] = byte(endHandle & 0xff)
     buf[4] = byte(endHandle >> 8)
 
-    r := make(chan Response, 1)
-    f.Transaction(buf, func(resp []byte, err error) {
-      r<-Response{resp, err}
-    })
+    r := make(chan Response)
+    f.transactChan<-Transaction{buf, r}
     respS := <-r
     err := respS.err
     resp := respS.value

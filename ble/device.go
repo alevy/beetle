@@ -84,28 +84,22 @@ func (this *Device) Start() {
 
   // Pull packets off `writeChan` and write to socket
   go func() {
-    for {
-      select {
-        case req, ok :=<-this.writeChan:
-          if !ok {
-            return
-          }
-          if Debug {
-            fmt.Printf("%s <= %v\n", this.addr, req)
-          }
-          this.fd.Write(req)
-
-        case req, ok :=<-this.transactChan:
-          if !ok {
-            return
-          }
-          if Debug {
-            fmt.Printf("%s <- %v\n", this.addr, req)
-          }
-          this.fd.Write(req.packet)
-          resp :=<-this.clientRespChan
-          req.respChan <-resp
+    for req := range this.writeChan {
+      if Debug {
+        fmt.Printf("%s <= %v\n", this.addr, req)
       }
+      this.fd.Write(req)
+    }
+  }()
+
+  go func() {
+    for req := range this.transactChan {
+      if Debug {
+        fmt.Printf("%s <- %v\n", this.addr, req)
+      }
+      this.writeChan <- req.packet
+      resp :=<-this.clientRespChan
+      req.respChan <-resp
     }
   }()
 
