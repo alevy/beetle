@@ -6,10 +6,9 @@ import (
   "io"
   "net"
   "os"
-  "fmt"
 )
 
-type ManagerRequest struct {
+type Request struct {
   msg []byte
   device *Device
 }
@@ -17,13 +16,13 @@ type ManagerRequest struct {
 type Manager struct {
   Devices map[string]*Device
   globalHandleOffset int
-  requestChan chan ManagerRequest
+  requestChan chan Request
   hciSock     *os.File
 }
 
 func NewManager(hciSock *os.File) (*Manager) {
   return &Manager{make(map[string]*Device, 0), 0,
-    make(chan ManagerRequest), hciSock}
+    make(chan Request), hciSock}
 }
 
 func (this *Manager) ConnectTo(addrType uint8, addr string, nick string) error {
@@ -191,10 +190,7 @@ func (this *Manager) DisconnectFrom(nick string) error {
     return errors.New("No such device")
   }
 
-  err := device.fd.Close()
-  if err != nil {
-    return err
-  }
+  device.Disconnect()
 
   delete(this.Devices, nick)
 
@@ -205,11 +201,8 @@ func (this *Manager) DisconnectFrom(nick string) error {
   // a lot.
   for _,d := range this.Devices {
     for _, handle := range d.handles {
-      fmt.Printf("%v\n", handle.subscribers)
       if _, ok := handle.subscribers[device]; ok {
-        fmt.Printf("Deleting... ")
         delete(handle.subscribers, device)
-        fmt.Printf("%v\n", handle.subscribers)
         if len(handle.subscribers) == 0 {
           //device.Transaction([]byte{ATT_OPCODE_WRITE_REQUEST, 0},
           //  func(resp []byte, err error){});

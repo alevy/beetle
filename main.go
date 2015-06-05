@@ -149,7 +149,7 @@ func main() {
         fmt.Printf("No connected devices\n")
       }
       for nick,device := range(manager.Devices) {
-        fmt.Printf("%02d:\t%s\n", nick, device)
+        fmt.Printf("%s:\t%s\n", nick, device)
       }
     case "handles":
       if len(parts) < 2 {

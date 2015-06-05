@@ -6,7 +6,7 @@ import (
   "sort"
 )
 
-func (this *Manager) RouteFindInfo(req ManagerRequest) {
+func (this *Manager) RouteFindInfo(req Request) {
   findReq, err := ParseFindInfoRequest(req.msg)
   if err != nil {
     resp := NewError(ATT_OPCODE_FIND_INFO_REQUEST, 0, 4)
@@ -51,7 +51,7 @@ func (this *Manager) RouteFindInfo(req ManagerRequest) {
 }
 
 
-func (this *Manager) RouteFindByTypeValue(req ManagerRequest) {
+func (this *Manager) RouteFindByTypeValue(req Request) {
   findReq, err := ParseFindByTypeValueRequest(req.msg)
   if err != nil {
     resp := NewError(ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST, 0, 4)
@@ -97,7 +97,7 @@ func (this *Manager) RouteFindByTypeValue(req ManagerRequest) {
   }
 }
 
-func (this *Manager) RouteReadByType(req ManagerRequest) {
+func (this *Manager) RouteReadByType(req Request) {
   readReq, err := ParseReadByTypeRequest(req.msg)
   if err != nil {
     resp := NewError(ATT_OPCODE_READ_BY_TYPE_REQUEST, 0, 4)
@@ -163,34 +163,24 @@ func (this *Manager) RunRouter() {
     case ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST:
       this.RouteFindByTypeValue(req)
     case ATT_OPCODE_READ_BY_TYPE_REQUEST:
-      this.RouteReadByType(req)
+      go this.RouteReadByType(req)
 
     case ATT_OPCODE_HANDLE_VALUE_NOTIFICATION:
       handleNum := uint16(pkt[1]) + uint16(pkt[2]) << 8
-      var device *Device
-      for _,d := range this.Devices {
-        if d.handleOffset + 1 < int(handleNum) &&
-          len(d.handles) + d.handleOffset + 1 > int(handleNum) {
-          device = d
-          break
-        }
-      }
-      if device == nil {
-        continue
-      }
+      device := req.device
 
-      remoteHandle := handleNum - uint16(device.handleOffset)
-      proxyHandle := device.handles[remoteHandle]
+      proxyHandle := device.handles[handleNum]
 
       if proxyHandle == nil {
         continue
       }
 
+      remoteHandle := handleNum + uint16(device.handleOffset)
       pkt[1] = byte(remoteHandle & 0xff)
       pkt[2] = byte(remoteHandle >> 8)
 
       for dev,_ := range proxyHandle.subscribers {
-        go dev.WriteCmd(pkt)
+        dev.WriteCmd(pkt)
       }
     case ATT_OPCODE_READ_REQUEST:
       fallthrough
@@ -240,7 +230,7 @@ func (this *Manager) RunRouter() {
            numSubscribers == 1 && pkt[3] == 1 {
           // TODO(alevy): Need to re-write handle in packet with offset before
           // sending
-          device.Transaction(pkt, func(resp []byte, err error){
+          device.Transaction(pkt, func(resp []byte, err error) {
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
               req.device.Respond(errResp.msg)

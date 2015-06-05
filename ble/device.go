@@ -13,7 +13,7 @@ type Response struct {
   err   error
 }
 
-type WriteReq struct {
+type Transaction struct {
   packet        []byte
   respChan      chan Response
 }
@@ -31,11 +31,6 @@ type Handle struct {
   subscribers map[*Device]bool
 }
 
-type Transaction struct {
-  req   []byte
-  cb    func([]byte, error)
-}
-
 type Device struct {
   addr          string
   fd            io.ReadWriteCloser
@@ -43,10 +38,14 @@ type Device struct {
   handleOffset  int
   highestHandle int
 
-  readPkt        chan []byte
+  // Responses for client initiated transactions stream
   clientRespChan chan Response
-  serverReqChan  chan ManagerRequest
+
+  // Server initiated transactions
+  serverReqChan  chan Request
+
   writeChan      chan []byte
+  transactChan   chan Transaction
 
   connInfo       *ConnInfo
   first          bool
@@ -67,49 +66,59 @@ func (device *Device) StrHandles() string {
   return result
 }
 
-func NewDevice(addr string, serverReqChan chan ManagerRequest, fd io.ReadWriteCloser, ci *ConnInfo) *Device {
+func NewDevice(addr string, serverReqChan chan Request, fd io.ReadWriteCloser,
+                ci *ConnInfo) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1, -1,
-    make(chan []byte, 2), make(chan Response, 2), serverReqChan,
-    make(chan []byte, 2), ci, true}
+    make(chan Response), serverReqChan,
+    make(chan []byte), make(chan Transaction), ci, true}
+}
+
+func (this *Device) Disconnect() {
+  close(this.clientRespChan)
+  close(this.writeChan)
+  close(this.transactChan)
+  this.fd.Close()
 }
 
 func (this *Device) Start() {
+
+  // Pull packets off `writeChan` and write to socket
   go func() {
     for {
-      buf := make([]byte, 64)
-      if Debug {
-        fmt.Printf("Reading from %s\n", this.addr)
-      }
-      n, err := this.fd.Read(buf)
-      if Debug {
-        fmt.Printf("Read from %s: %v\n", this.addr, buf[0:n])
-      }
-      if err != nil {
-        return
-      }
-      this.readPkt <- buf[0:n]
-    }
-  }()
+      select {
+        case req, ok :=<-this.writeChan:
+          if !ok {
+            return
+          }
+          if Debug {
+            fmt.Printf("%s <= %v\n", this.addr, req)
+          }
+          this.fd.Write(req)
 
-  // Pass write packets to socket
-  go func() {
-    for req := range this.writeChan {
-      if Debug {
-        fmt.Printf("%s <- %v\n", this.addr, req)
-      }
-      _, err := this.fd.Write(req)
-      if Debug {
-        fmt.Printf("Wrote to %s\n", this.addr)
-      }
-      if err != nil {
-        return
+        case req, ok :=<-this.transactChan:
+          if !ok {
+            return
+          }
+          if Debug {
+            fmt.Printf("%s <- %v\n", this.addr, req)
+          }
+          this.fd.Write(req.packet)
+          resp :=<-this.clientRespChan
+          req.respChan <-resp
       }
     }
   }()
 
   // Read from socket and route to appropriate handler
   go func() {
-    for buf := range(this.readPkt) {
+    for {
+      buf := make([]byte, 64)
+      n, err := this.fd.Read(buf)
+      if err != nil || n == 0 {
+        return
+      }
+
+      buf = buf[0:n]
       if Debug {
         fmt.Printf("%s -> %v\n", this.addr, buf)
       }
@@ -118,7 +127,7 @@ func (this *Device) Start() {
           buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { // Response packet
         this.clientRespChan <-Response{buf, nil}
       } else {
-        this.serverReqChan <-ManagerRequest{buf, this}
+        this.serverReqChan <-Request{buf, this}
       }
     }
   }()
@@ -134,8 +143,11 @@ func (this *Device) WriteCmd(packet []byte) {
 }
 
 func (this *Device) Transaction(packet []byte, cb func([]byte, error)) {
-  this.writeChan <-packet
-  resp :=<-this.clientRespChan
-  cb(resp.value, resp.err)
+  go func() {
+    respChan := make(chan Response)
+    this.transactChan <-Transaction{packet,respChan}
+    resp :=<-respChan
+    cb(resp.value, resp.err)
+  }()
 }
 
