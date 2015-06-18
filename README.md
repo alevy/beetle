@@ -48,37 +48,15 @@ Connecting to [DEVICE2_ADDRESS]
 
 ## Commands
 
-+------------+-------------------------------+---------------------------------+
 | Command    | Arguments                     | Description                     |
-+============+===============================+=================================+
-| connect    | public|random DEVICE\_ADDRESS | Connects to a peripheral device.|
-|            |                               | The first argument specifies if |
-|            |                               | the address is Public or Random.|
-+------------+-------------------------------+---------------------------------+
+|------------|-------------------------------|---------------------------------|
+| connect    | public|random DEVICE\_ADDRESS | Connects to a peripheral device. the address is Public or Random.|
 | connectTCP | IP:PORT                       | Connects to a remote TCP server.|
-+------------+-------------------------------+---------------------------------+
-| devices    |                               | Lists connected devices by      |
-|            |                               | device number.                  |
-+------------+-------------------------------+---------------------------------+
-| start      | DEVICE\_NUM                   | Performs discovery on the device|
-|            |                               | and begins communication with   |
-|            |                               | it.                             |
-+------------+-------------------------------+---------------------------------+
-| start      | DEVICE\_NUM                   | Same as `start` but without     |
-|            |                               | performing GATT discovery.      |
-+------------+-------------------------------+---------------------------------+
-| disconnect | DEVICE\_NUM                   | Disconnects from the specified  |
-|            |                               | device.                         |
-+------------+-------------------------------+---------------------------------+
-| handles    | DEVICE\_NUM                   | Lists handles associated with   |
-|            |                               | the device (discovered by the   |
-|            |                               | `start` command).               |
-+------------+-------------------------------+---------------------------------+
-| serve      | DEVICE\_FROM DEVICE\_TO       | Exposes handles from            |
-|            |                               | `DEVICE\_FROM` to `DEVICE\_TO`. |
-+------------+-------------------------------+---------------------------------+
-| debug      | on|off                        | Turns debugging (prints GATT    |
-|            |                               | commands to the console) on or  |
-|            |                               | off.                            |
-+------------+-------------------------------+---------------------------------+
+| devices    |                               | Lists connected devices by device number.|
+| start      | DEVICE\_NUM                   | Performs discovery on the device and begins communication with it.|
+| start      | DEVICE\_NUM                   | Same as `start` but without performing GATT discovery.|
+| disconnect | DEVICE\_NUM                   | Disconnects from the specified device.|
+| handles    | DEVICE\_NUM                   | Lists handles associated with the device (discovered by the `start` command).|
+| serve      | DEVICE\_FROM DEVICE\_TO       | Exposes handles from `DEVICE\_FROM` to `DEVICE\_TO`.|
+| debug      | on|off                        | Turns debugging (prints GATT commands to the console) on or off.|
 
