@@ -228,8 +228,11 @@ func (this *Manager) RunRouter() {
         numSubscribers := len(proxyCharHandle.subscribers)
         if numSubscribers == 0 && pkt[3] == 0 ||
            numSubscribers == 1 && pkt[3] == 1 {
-          // TODO(alevy): Need to re-write handle in packet with offset before
-          // sending
+          // First subscribe or last unsubscribe case
+          // Translate packet handle with sutracted device offset
+          pkt[1] = byte(remoteHandle & 0xff)
+          pkt[2] = byte(remoteHandle >> 8)
+          
           device.Transaction(pkt, func(resp []byte, err error) {
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
