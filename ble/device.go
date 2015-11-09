@@ -58,16 +58,16 @@ func (device *Device) String() string {
 func (device *Device) StrHandles() string {
   result := ""
   for i, handle := range device.handles {
-    result += fmt.Sprintf("0x%02X\t0x%02X:\t%v\t%v\t0x%02X\t0x%02X\tsubscribers: %d\n",
-      i,
+    result += fmt.Sprintf(
+      "0x%02X\t0x%02X:\t%v\t%v\t0x%02X\t0x%02X\tsubscribers: %d\n", i,
       handle.handle, handle.uuid, handle.cachedValue,
       handle.charHandle, handle.serviceHandle, len(handle.subscribers))
   }
   return result
 }
 
-func NewDevice(addr string, serverReqChan chan Request, fd io.ReadWriteCloser,
-                ci *ConnInfo) *Device {
+func NewDevice(addr string, serverReqChan chan Request, 
+  fd io.ReadWriteCloser, ci *ConnInfo) *Device {
   return &Device{addr, fd, make(map[uint16]*Handle), -1, -1,
     make(chan Response), serverReqChan,
     make(chan []byte), make(chan Transaction), ci, true}
@@ -116,10 +116,12 @@ func (this *Device) Start() {
       if Debug {
         fmt.Printf("%s -> %v\n", this.addr, buf)
       }
-      if (buf[0] & 1 == 1 && buf[0] != ATT_OPCODE_HANDLE_VALUE_NOTIFICATION &&
-          buf[0] != ATT_OPCODE_HANDLE_VALUE_INDICATION) ||
-          buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { // Response packet
-        this.clientRespChan <-Response{buf, nil}
+      
+      if (buf[0] & 1 == 1 && 
+        buf[0] != ATT_OPCODE_HANDLE_VALUE_NOTIFICATION &&
+        buf[0] != ATT_OPCODE_HANDLE_VALUE_INDICATION) ||
+        buf[0] == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION { 
+        this.clientRespChan <-Response{buf, nil} // Response packet
       } else {
         this.serverReqChan <-Request{buf, this}
       }

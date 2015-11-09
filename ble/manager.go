@@ -17,7 +17,7 @@ type Manager struct {
   Devices map[string]*Device
   globalHandleOffset int
   requestChan chan Request
-  hciSock     *os.File
+  hciSock *os.File
 }
 
 func NewManager(hciSock *os.File) (*Manager) {
@@ -114,6 +114,7 @@ func (this *Manager) StartDevice(device *Device) error {
       device.fd.Close()
       return err
     }
+
     for _,char := range chars {
       handle := new(Handle)
       handle.subscribers = make(map[*Device]bool)
@@ -133,10 +134,12 @@ func (this *Manager) StartDevice(device *Device) error {
       endGroup := chars[i + 1].handle
       device.handles[char.handle].endGroup = endGroup
       handleInfos, err := DiscoverHandles(device, startGroup, endGroup)
+      
       if err != nil {
         device.fd.Close()
         return err
       }
+
       for _, handleInfo := range(handleInfos) {
         handle := new(Handle)
         handle.subscribers = make(map[*Device]bool)
@@ -158,10 +161,12 @@ func (this *Manager) StartDevice(device *Device) error {
     endGroup := service.endGroup
     device.handles[char.handle].endGroup = endGroup
     handleInfos, err := DiscoverHandles(device, startGroup, endGroup)
+   
     if err != nil {
       device.fd.Close()
       return err
     }
+
     for _, handleInfo := range(handleInfos) {
       handle := new(Handle)
       handle.subscribers = make(map[*Device]bool)
@@ -179,7 +184,6 @@ func (this *Manager) StartDevice(device *Device) error {
   device.handleOffset = this.globalHandleOffset
   device.highestHandle = int(lastHandle) + device.handleOffset
   this.globalHandleOffset += int(lastHandle)
-
 
   return nil
 }
@@ -213,12 +217,14 @@ func (this *Manager) DisconnectFrom(nick string) error {
             if !ok {
               break
             }
+
             if handle.uuid == GATT_CLIENT_CONFIGURATION_UUID {
               // adjust handle offset
               h := i - uint16(d.handleOffset)
               // write a zero
               d.Transaction(
-                []byte{ATT_OPCODE_WRITE_REQUEST, byte(h & 0xff), byte(h >> 8), 0, 0},
+                []byte{ATT_OPCODE_WRITE_REQUEST, byte(h & 0xff), 
+                  byte(h >> 8), 0, 0},
                 func(resp []byte, err error){});
               break
             }

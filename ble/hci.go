@@ -23,10 +23,12 @@ func NewHCI(dev_id uint8) (*os.File, error) {
   *((*uint16)(unsafe.Pointer(&sockaddr_hci[0]))) = uint16(AF_BLUETOOTH)
   sockaddr_hci[2] = dev_id
 
-
   addrlen := len(sockaddr_hci)
-  _, _, err1 := syscall.Syscall(syscall.SYS_BIND, uintptr(fd),
-      uintptr(unsafe.Pointer(&sockaddr_hci[0])), uintptr(addrlen))
+  _, _, err1 := syscall.Syscall(
+    syscall.SYS_BIND, 
+    uintptr(fd),
+    uintptr(unsafe.Pointer(&sockaddr_hci[0])), 
+    uintptr(addrlen))
   if err1 != 0 {
     return nil, err
   }
@@ -37,8 +39,13 @@ func NewHCI(dev_id uint8) (*os.File, error) {
 
 func HCIConnUpdate(fd *os.File, handle, min_interval, max_interval,
   latency, supervisor_timeout uint16) (int) {
-    err := C.hci_le_conn_update(C.int(fd.Fd()), C.uint16_t(handle),
-      C.uint16_t(min_interval), C.uint16_t(max_interval), C.uint16_t(latency), C.uint16_t(supervisor_timeout), 0)
+    err := C.hci_le_conn_update(
+      C.int(fd.Fd()), 
+      C.uint16_t(handle),
+      C.uint16_t(min_interval), 
+      C.uint16_t(max_interval), 
+      C.uint16_t(latency), 
+      C.uint16_t(supervisor_timeout), 0)
     return int(err)
 }
 
