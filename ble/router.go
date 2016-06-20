@@ -6,6 +6,18 @@ import (
   "sort"
 )
 
+func (this *Manager) RouteConnUpdate(req Request) {
+  interval := uint16(req.msg[1]) + uint16(req.msg[2]) << 8
+  for _,device := range(this.Devices) {
+    if device != req.device {
+      this.ConnUpdate(device, interval)
+    }
+  }
+  msg := make([]byte,1)
+  msg[0] = 0xff
+  req.device.Respond(msg)
+}
+
 func (this *Manager) RouteFindInfo(req Request) {
   findReq, err := ParseFindInfoRequest(req.msg)
   if err != nil {
@@ -158,6 +170,8 @@ func (this *Manager) RunRouter() {
   for req := range this.requestChan {
     pkt := req.msg
     switch(pkt[0]) {
+    case ATT_OPCODE_CONN_UPDATE:
+      this.RouteConnUpdate(req)
     case ATT_OPCODE_FIND_INFO_REQUEST:
       this.RouteFindInfo(req)
     case ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST:
@@ -232,7 +246,7 @@ func (this *Manager) RunRouter() {
           // Translate packet handle with sutracted device offset
           pkt[1] = byte(remoteHandle & 0xff)
           pkt[2] = byte(remoteHandle >> 8)
-          
+
           device.Transaction(pkt, func(resp []byte, err error) {
             if err != nil {
               errResp := NewError(pkt[1], handleNum, 0x0E)
@@ -244,7 +258,7 @@ func (this *Manager) RunRouter() {
         } else {
           req.device.Respond([]byte{ATT_OPCODE_WRITE_RESPONSE})
         }
-      } else if pkt[0] == ATT_OPCODE_READ_REQUEST && proxyHandle.cachedValue != nil &&
+      } else if false && pkt[0] == ATT_OPCODE_READ_REQUEST && proxyHandle.cachedValue != nil &&
           (/*&& time.Since(proxyHandle.cachedTime) <=
              time.Duration(interval) * time.Millisecond*/
           !proxyHandle.cachedMap[req.device] || proxyHandle.cachedInfinite)  {
