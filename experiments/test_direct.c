@@ -4,6 +4,8 @@
 #include <bluetooth/l2cap.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
+#include <unistd.h>
+#include <stdio.h>
 
 int main(int argc, char** argv) {
   int hciSocket = hci_open_dev(0);
@@ -37,6 +39,8 @@ int main(int argc, char** argv) {
   }
   int hciHandle = l2capConnInfo.hci_handle;
 
+  FILE* out = fopen(argv[3], "w+");
+
   char req[3] = { 0x0A, 0x06, 0x00 };
   char buf[48];
 
@@ -44,14 +48,14 @@ int main(int argc, char** argv) {
   struct timespec end;
 
   uint16_t interval;
-  for (interval = 6; interval <= 0x0C80; interval *= 2) {
+  for (interval = 6; interval <= 800; interval *= 2) {
     if(hci_le_conn_update(hciSocket, l2capConnInfo.hci_handle, interval, interval, 0, 0x03E8, 0) < 0) {
       perror("conn_update");
     }
 
 
     int i = 0;
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 30; i++) {
       clock_gettime(CLOCK_REALTIME, &start);
       if(write(l2capSock, req, 3) < 0){
         perror("write");
@@ -64,11 +68,15 @@ int main(int argc, char** argv) {
       clock_gettime(CLOCK_REALTIME, &end);
 
       printf("%f,%d\n", interval * 1.25, (end.tv_nsec - start.tv_nsec) / 1000000 + (end.tv_sec - start.tv_sec) * 1000);
+      fprintf(out, "%f,%d\n", interval * 1.25, (end.tv_nsec - start.tv_nsec) / 1000000 + (end.tv_sec - start.tv_sec) * 1000);
+      sync();
       int skip = rand();
       double skipd = ((double)skip / RAND_MAX) * interval * 1.25 * 1000;
       usleep((long)skipd);
     }
   }
+
+  fclose(out);
 
   return 0;
 }
